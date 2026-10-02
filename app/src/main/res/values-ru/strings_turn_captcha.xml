@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Капча (§9) -->
+    <string name="turn_captcha_notification_title">Требуется капча</string>
+    <string name="turn_captcha_notification_body">Откройте приложение, чтобы решить капчу и подключиться через TURN.</string>
+    <string name="turn_captcha_channel_name">Капча TURN</string>
+    <string name="turn_captcha_solve">Решить капчу</string>
+    <string name="turn_captcha_close">Закрыть</string>
+
+    <!-- Пункт настроек (§10) -->
+    <string name="turn_settings_utilities">Утилиты</string>
+
+    <!-- Экран TURN (§12) -->
+    <string name="turn_settings_title">TURN</string>
+    <string name="turn_settings_route">Маршрут</string>
+    <string name="turn_settings_auto_status_turn">Сейчас: через TURN</string>
+    <string name="turn_settings_auto_status_direct">Сейчас: напрямую</string>
+    <string name="turn_settings_auto_status_probing">Определяется…</string>
+    <string name="turn_settings_mode_footer">Пропускает трафик прокси через реле VK Calls, прежде чем он дойдёт до сервера, — со стороны соединение выглядит как обычный звонок. В режиме «Авто» сеть сначала проверяется, и туннель включается, только если прямой путь заблокирован. Если удерживать кнопку питания две секунды, подключение один раз пойдёт через TURN — при любом режиме.</string>
+    <string name="turn_settings_vk_link_header">Ссылка VK Calls</string>
+    <string name="turn_settings_vk_link_placeholder">https://vk.com/call/join/…</string>
+    <string name="turn_settings_vk_link_from_subscription">Используется ссылка из подписки: %1$s</string>
+    <string name="turn_settings_vk_link_missing">Подписка не принесла ссылку. Вставьте её здесь — без неё TURN не заработает.</string>
+    <string name="turn_settings_vk_link_override">Эта ссылка заменяет ту, что пришла с подпиской.</string>
+    <string name="turn_settings_relay">Реле</string>
+    <string name="turn_settings_peers">Пиры</string>
+    <string name="turn_settings_captcha">Капча</string>
+    <string name="turn_settings_captcha_automatic">Автоматически</string>
+    <string name="turn_settings_captcha_manual">Вручную</string>
+    <string name="turn_settings_relay_footer">Реле обслуживает до %1$d пиров на один аккаунт VK. Ещё один аккаунт приложение подключает, только когда реле заполнено, — и для него может понадобиться ещё одна капча.</string>
+    <string name="turn_settings_live">Сейчас</string>
+    <string name="turn_settings_sessions">Сессии</string>
+    <string name="turn_settings_open_streams">Открытые потоки</string>
+    <string name="turn_settings_live_footer_empty">Счётчики появятся, когда VPN подключится и заработает реле.</string>
+    <string name="turn_settings_live_footer">По каждому реле: сессии / открытые потоки, затем задействованные аккаунты VK.</string>
+    <string name="turn_settings_captcha_footer">Иногда VK просит пройти капчу, прежде чем реле примет звонок. Окно открывается само, когда капча ждёт; эта кнопка открывает его заново.</string>
+    <string name="turn_settings_servers">Серверы</string>
+    <string name="turn_settings_no_servers_title">Нет TURN-серверов</string>
+    <string name="turn_settings_no_servers_body">Добавьте или обновите подписку, в которой есть TURN-реле.</string>
+    <string name="turn_settings_servers_footer">Через туннель идут только серверы, отмеченные в подписке как поддерживаемые; остальные подключаются напрямую.</string>
+    <string name="turn_settings_supported">Поддерживается</string>
+    <string name="turn_settings_unsupported">Не поддерживается</string>
+</resources>

@@ -22,6 +22,7 @@ import android.os.Build
 import android.os.ParcelFileDescriptor
 import com.argsment.anywhere.MainActivity
 import com.argsment.anywhere.data.model.ProxyConfiguration
+import com.argsment.anywhere.turn.TurnCaptchaNotifier
 import com.argsment.anywhere.turn.TurnEnvironment
 import com.argsment.anywhere.vpn.protocol.tls.CertificatePolicy
 import com.argsment.anywhere.vpn.turn.TurnAutoState
@@ -250,6 +251,8 @@ class AnywhereVpnService : VpnService() {
         }
         TurnRouting.warmUp(effectiveConfig)
         TurnStatusMonitor.start()
+        // Captcha notifications come from the tunnel side (spec §9.4): the UI may be gone.
+        TurnCaptchaNotifier.start(this)
 
         // Begin observing the underlying physical network so we can restart
         // the stack when the user roams between Wi-Fi and Cellular.
@@ -262,6 +265,7 @@ class AnywhereVpnService : VpnService() {
     }
 
     private fun stopVpn() {
+        TurnCaptchaNotifier.stop(this)
         TurnStatusMonitor.stop()
         TurnAutoState.stopPilot()
         TurnRouting.reset()

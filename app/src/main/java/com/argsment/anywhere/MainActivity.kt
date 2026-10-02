@@ -10,9 +10,13 @@ import androidx.activity.viewModels
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.argsment.anywhere.turn.TurnCaptchaMonitor
+import com.argsment.anywhere.turn.TurnCaptchaNotifications
+import com.argsment.anywhere.turn.TurnEnvironment
 import com.argsment.anywhere.ui.navigation.AppNavigation
 import com.argsment.anywhere.ui.onboarding.OnboardingScreen
 import com.argsment.anywhere.ui.theme.AnywhereTheme
+import com.argsment.anywhere.ui.turn.TurnCaptchaHost
 import com.argsment.anywhere.viewmodel.VpnViewModel
 
 class MainActivity : ComponentActivity() {
@@ -38,6 +42,7 @@ class MainActivity : ComponentActivity() {
         }
 
         handleDeepLinkIntent(intent)
+        handleCaptchaIntent(intent)
 
         setContent {
             AnywhereTheme {
@@ -52,6 +57,8 @@ class MainActivity : ComponentActivity() {
                     )
                 } else {
                     AppNavigation(viewModel = viewModel)
+                    // TURN captcha sheet, over every tab (spec §9.4).
+                    TurnCaptchaHost(viewModel = viewModel)
                 }
             }
         }
@@ -60,6 +67,28 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         handleDeepLinkIntent(intent)
+        handleCaptchaIntent(intent)
+    }
+
+    // The VPN service reads this to decide whether a captcha needs a notification
+    // (iOS: `setAppInForeground(scenePhase == .active)`). Single-activity app, so the
+    // activity's started state is the app's foreground state.
+    override fun onStart() {
+        super.onStart()
+        TurnEnvironment.install(this)
+        TurnEnvironment.settings?.appIsForeground = true
+    }
+
+    override fun onStop() {
+        super.onStop()
+        TurnEnvironment.settings?.appIsForeground = false
+    }
+
+    /** A tap on the "captcha required" notification re-arms the captcha sheet. */
+    private fun handleCaptchaIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(TurnCaptchaNotifications.EXTRA_OPEN_CAPTCHA, false) != true) return
+        intent.removeExtra(TurnCaptchaNotifications.EXTRA_OPEN_CAPTCHA)
+        TurnCaptchaMonitor.requestShow()
     }
 
     private fun handleDeepLinkIntent(intent: Intent?) {

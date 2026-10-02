@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TURN captcha + TURN settings screen (Phase B2, spec §9/§12/§13). Kept apart from
+     strings.xml so parallel work does not conflict. Mode titles live in strings_turn_core.xml. -->
+<resources>
+    <!-- Captcha (§9) -->
+    <string name="turn_captcha_notification_title">Captcha required</string>
+    <string name="turn_captcha_notification_body">Open the app to solve the captcha and connect through TURN.</string>
+    <string name="turn_captcha_channel_name">TURN captcha</string>
+    <string name="turn_captcha_solve">Solve Captcha</string>
+    <string name="turn_captcha_close">Close</string>
+
+    <!-- Settings entry (§10) -->
+    <string name="turn_settings_utilities">Utilities</string>
+
+    <!-- TURN screen (§12) -->
+    <string name="turn_settings_title">TURN</string>
+    <string name="turn_settings_route">Route</string>
+    <string name="turn_settings_auto_status_turn">Using TURN</string>
+    <string name="turn_settings_auto_status_direct">Direct</string>
+    <string name="turn_settings_auto_status_probing">Checking…</string>
+    <string name="turn_settings_mode_footer">Tunnels proxy traffic through a VK Calls relay before it reaches the server, so the connection looks like an ordinary call. Auto probes the network first and only tunnels when the direct path is blocked. Holding the power button for two seconds connects through TURN once, whatever the mode.</string>
+    <string name="turn_settings_vk_link_header">VK Calls Link</string>
+    <string name="turn_settings_vk_link_placeholder">https://vk.com/call/join/…</string>
+    <string name="turn_settings_vk_link_from_subscription">Using the link from your subscription: %1$s</string>
+    <string name="turn_settings_vk_link_missing">No link was delivered with your subscription. Paste one here — TURN stays inactive without it.</string>
+    <string name="turn_settings_vk_link_override">This link overrides the one delivered with your subscription.</string>
+    <string name="turn_settings_relay">Relay</string>
+    <string name="turn_settings_peers">Peers</string>
+    <string name="turn_settings_captcha">Captcha</string>
+    <string name="turn_settings_captcha_automatic">Automatic</string>
+    <string name="turn_settings_captcha_manual">Manual</string>
+    <string name="turn_settings_relay_footer">The relay serves up to %1$d peers per VK account. Only when it is full does the app sign in with one more account — which may ask for one more captcha.</string>
+    <string name="turn_settings_live">Live</string>
+    <string name="turn_settings_sessions">Sessions</string>
+    <string name="turn_settings_open_streams">Open Streams</string>
+    <string name="turn_settings_live_footer_empty">Counts appear once the VPN is connected and a relay is in use.</string>
+    <string name="turn_settings_live_footer">Per relay: sessions / open streams, then VK accounts in use.</string>
+    <string name="turn_settings_captcha_footer">VK sometimes asks for a captcha before the relay will accept a call. The prompt opens on its own when one is waiting; use this to reopen it.</string>
+    <string name="turn_settings_servers">Servers</string>
+    <string name="turn_settings_no_servers_title">No TURN Servers</string>
+    <string name="turn_settings_no_servers_body">Add or refresh a subscription that advertises TURN relays.</string>
+    <string name="turn_settings_servers_footer">Only servers your subscription marks as supported are tunnelled; the rest connect directly.</string>
+    <string name="turn_settings_supported">Supported</string>
+    <string name="turn_settings_unsupported">Unsupported</string>
+</resources>

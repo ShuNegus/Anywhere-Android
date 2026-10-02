@@ -57,8 +57,13 @@ object TurnAutoState {
 
     val isAutoPilotInstalled: Boolean get() = autoPilotFactory != null
 
-    @Volatile
+    /** Guards [pilot] and [session]. Never held while calling into the decision state. */
+    private val pilotLock = Any()
     private var pilot: TurnAutoPilot? = null
+
+    /** What a pilot needs to run, kept for the life of the tunnel session. */
+    private class Session(val context: Context, val onSwitchToTurn: () -> Unit)
+    private var session: Session? = null
 
     private data class State(val decision: TurnAutoDecision, val generation: Long)
 
@@ -87,12 +92,17 @@ object TurnAutoState {
     /**
      * Suspends until a verdict exists, so the first flows of a session do not dial
      * direct out of a censored network before the probe lands. Returns at once when the
-     * effective mode is not auto, no auto-pilot is installed, or a decision is in hand;
+     * effective mode is not auto, no auto-pilot is installed or no tunnel session is up,
+     * or a decision is in hand;
      * [timeoutMs] is the safety net for a probe that never lands.
      */
     suspend fun waitForDecision(settings: TurnSettings, timeoutMs: Long = 3_000) {
         if (!isAutoPilotInstalled) return
         if (settings.effectiveTurnMode != TurnMode.AUTO) return
+        // Auto may have come into effect after the tunnel started (mode changed in the
+        // TURN screen while connected). Without a pilot nothing would ever decide and
+        // every flow would sit out the full timeout.
+        if (!ensurePilot(settings)) return
         val start = state.value
         if (start.decision != TurnAutoDecision.UNDECIDED) return
         withTimeoutOrNull(timeoutMs) {
@@ -109,23 +119,46 @@ object TurnAutoState {
         }
     }
 
-    /** Service hook: starts the installed auto-pilot. */
+    /**
+     * Service hook: a tunnel session starts. Starts the installed auto-pilot when auto is
+     * in effect now; otherwise it is started later by [ensurePilot] should the user switch
+     * to auto while connected.
+     */
     fun startPilot(context: Context, settings: TurnSettings, onSwitchToTurn: () -> Unit) {
         stopPilot()
-        if (!settings.turnActiveForSession || settings.effectiveTurnMode != TurnMode.AUTO) return
-        val factory = autoPilotFactory ?: return
-        pilot = factory(context).also { it.start(onSwitchToTurn) }
+        synchronized(pilotLock) { session = Session(context.applicationContext ?: context, onSwitchToTurn) }
+        ensurePilot(settings)
+    }
+
+    /**
+     * Makes sure a pilot runs when auto is in effect during a tunnel session. Returns
+     * whether one is running (false outside a session or when none is installed).
+     */
+    fun ensurePilot(settings: TurnSettings): Boolean {
+        if (!settings.turnActiveForSession || settings.effectiveTurnMode != TurnMode.AUTO) {
+            return synchronized(pilotLock) { pilot != null }
+        }
+        synchronized(pilotLock) {
+            if (pilot != null) return true
+            val current = session ?: return false
+            val factory = autoPilotFactory ?: return false
+            pilot = factory(current.context).also { it.start(current.onSwitchToTurn) }
+            return true
+        }
     }
 
     /** Service hook: the device woke up from sleep. */
     fun notePilotWake() {
-        pilot?.noteWake()
+        synchronized(pilotLock) { pilot }?.noteWake()
     }
 
-    /** Service hook: stops the auto-pilot and resets the decision. */
+    /** Service hook: stops the auto-pilot, ends the session and resets the decision. */
     fun stopPilot() {
-        pilot?.stop()
-        pilot = null
+        val running = synchronized(pilotLock) {
+            session = null
+            pilot.also { pilot = null }
+        }
+        running?.stop()
         reset()
     }
 }

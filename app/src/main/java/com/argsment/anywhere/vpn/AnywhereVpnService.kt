@@ -243,14 +243,17 @@ class AnywhereVpnService : VpnService() {
             reapplyTunnelSettings(effectiveConfig)
         }
 
-        stack.start(fd, effectiveConfig, ipv6Dns)
-
-        // TURN (spec §5.4/§6): the auto-pilot (auto mode only) decides the
-        // route, the pool for the selected server starts its VK login right away, and the
-        // UI gets a once-a-second status snapshot.
+        // TURN auto-pilot (auto mode only, spec §7.5): started before the stack so that
+        // the session exists by the time the first flow asks for a route — flows then
+        // wait for its verdict instead of dialing direct. Its probe overlaps stack start.
         TurnEnvironment.settings?.let { settings ->
             TurnAutoState.startPilot(this, settings) { lwipStack?.handleTurnRouteChanged() }
         }
+
+        stack.start(fd, effectiveConfig, ipv6Dns)
+
+        // TURN (spec §5.4/§6): the pool for the selected server starts its VK login right
+        // away, and the UI gets a once-a-second status snapshot.
         TurnRouting.warmUp(effectiveConfig)
         TurnStatusMonitor.start()
         // Captcha notifications come from the tunnel side (spec §9.4): the UI may be gone.

@@ -11,7 +11,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Language
@@ -44,19 +43,16 @@ fun AdvancedSettingsScreen(
 ) {
     var showIpv6Settings by remember { mutableStateOf(false) }
     var showEncryptedDns by remember { mutableStateOf(false) }
-    var showLogs by remember { mutableStateOf(false) }
 
-    val activeSubScreen = showIpv6Settings || showEncryptedDns || showLogs
+    val activeSubScreen = showIpv6Settings || showEncryptedDns
     BackHandler(enabled = activeSubScreen) {
         showIpv6Settings = false
         showEncryptedDns = false
-        showLogs = false
     }
 
     val currentRoute = when {
         showIpv6Settings -> "ipv6"
         showEncryptedDns -> "dns"
-        showLogs -> "logs"
         else -> "root"
     }
 
@@ -64,13 +60,11 @@ fun AdvancedSettingsScreen(
         when (route) {
             "ipv6" -> Ipv6SettingsScreen(viewModel = viewModel, onBack = { showIpv6Settings = false })
             "dns" -> EncryptedDnsSettingsScreen(viewModel = viewModel, onBack = { showEncryptedDns = false })
-            "logs" -> LogListScreen(onBack = { showLogs = false })
             else -> AdvancedSettingsRoot(
                 viewModel = viewModel,
                 onBack = onBack,
                 onOpenIpv6 = { showIpv6Settings = true },
-                onOpenEncryptedDns = { showEncryptedDns = true },
-                onOpenLogs = { showLogs = true }
+                onOpenEncryptedDns = { showEncryptedDns = true }
             )
         }
     }
@@ -82,8 +76,7 @@ private fun AdvancedSettingsRoot(
     viewModel: VpnViewModel,
     onBack: () -> Unit,
     onOpenIpv6: () -> Unit,
-    onOpenEncryptedDns: () -> Unit,
-    onOpenLogs: () -> Unit
+    onOpenEncryptedDns: () -> Unit
 ) {
     var experimentalEnabled by remember { mutableStateOf(viewModel.experimentalEnabled) }
     var remnawaveHWIDEnabled by remember { mutableStateOf(viewModel.remnawaveHWIDEnabled) }
@@ -130,16 +123,6 @@ private fun AdvancedSettingsRoot(
                 iconTint = Color(0xFF009688),
                 label = stringResource(R.string.encrypted_dns),
                 onClick = onOpenEncryptedDns
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            SectionHeader(stringResource(R.string.diagnostics))
-            SettingsNavRow(
-                icon = Icons.AutoMirrored.Filled.ReceiptLong,
-                iconTint = Color(0xFF607D8B),
-                label = stringResource(R.string.logs),
-                onClick = onOpenLogs
             )
 
             Spacer(modifier = Modifier.height(16.dp))

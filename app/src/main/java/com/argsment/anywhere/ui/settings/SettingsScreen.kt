@@ -22,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.AltRoute
+import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Public
@@ -44,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -75,6 +78,9 @@ fun SettingsScreen(viewModel: VpnViewModel) {
     var showAdvancedSettings by remember { mutableStateOf(false) }
     var showInsecureAlert by remember { mutableStateOf(false) }
     var showTurnSettings by remember { mutableStateOf(false) }
+    var showLogs by remember { mutableStateOf(false) }
+    val proModeEnabled by viewModel.proModeEnabled.collectAsState()
+    val visibility = ProModeVisibility.of(proModeEnabled, viewModel.turnSettings.featureEnabled)
 
     var globalMode by remember { mutableStateOf(viewModel.proxyMode == "global") }
     var bypassCountryCode by remember { mutableStateOf(viewModel.bypassCountryCode) }
@@ -89,9 +95,10 @@ fun SettingsScreen(viewModel: VpnViewModel) {
     // this, the NavHost handles back press by popping the SettingsRoute,
     // sending the user to Home instead of back to the Settings list.
     val activeSubScreen = showRoutingRules || showAcknowledgements ||
-            showTrustedCertificates || showAdvancedSettings || showTurnSettings
+            showTrustedCertificates || showAdvancedSettings || showTurnSettings || showLogs
     BackHandler(enabled = activeSubScreen) {
         showTurnSettings = false
+        showLogs = false
         showRoutingRules = false
         showAcknowledgements = false
         showTrustedCertificates = false
@@ -104,6 +111,7 @@ fun SettingsScreen(viewModel: VpnViewModel) {
         showTrustedCertificates -> "certs"
         showAdvancedSettings -> "advanced"
         showTurnSettings -> "turn"
+        showLogs -> "logs"
         else -> "root"
     }
 
@@ -126,7 +134,12 @@ fun SettingsScreen(viewModel: VpnViewModel) {
                 viewModel = viewModel,
                 onBack = { showTurnSettings = false }
             )
+            "logs" -> LogListScreen(onBack = { showLogs = false })
             else -> SettingsRoot(
+                visibility = visibility,
+                proModeEnabled = proModeEnabled,
+                onProModeChange = viewModel::setProModeEnabled,
+                onOpenLogs = { showLogs = true },
                 globalMode = globalMode,
                 onGlobalModeChange = { globalMode = it; viewModel.proxyMode = if (it) "global" else "rule" },
                 bypassCountryCode = bypassCountryCode,
@@ -163,8 +176,6 @@ fun SettingsScreen(viewModel: VpnViewModel) {
                 },
                 onOpenRoutingRules = { showRoutingRules = true },
                 onOpenTrustedCertificates = { showTrustedCertificates = true },
-                // iOS: the TURN item exists only while the master switch is on.
-                turnVisible = viewModel.turnSettings.featureEnabled,
                 onOpenTurn = { showTurnSettings = true },
                 onOpenAcknowledgements = { showAcknowledgements = true },
                 onOpenAdvancedSettings = { showAdvancedSettings = true }
@@ -198,6 +209,10 @@ fun SettingsScreen(viewModel: VpnViewModel) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun SettingsRoot(
+    visibility: ProModeVisibility,
+    proModeEnabled: Boolean,
+    onProModeChange: (Boolean) -> Unit,
+    onOpenLogs: () -> Unit,
     globalMode: Boolean,
     onGlobalModeChange: (Boolean) -> Unit,
     bypassCountryCode: String,
@@ -210,7 +225,6 @@ private fun SettingsRoot(
     onOpenTelegram: () -> Unit,
     onOpenRoutingRules: () -> Unit,
     onOpenTrustedCertificates: () -> Unit,
-    turnVisible: Boolean,
     onOpenTurn: () -> Unit,
     onOpenAcknowledgements: () -> Unit,
     onOpenAdvancedSettings: () -> Unit
@@ -228,6 +242,19 @@ private fun SettingsRoot(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            // App: the Pro Mode toggle is always visible (iOS also has iCloud Sync and
+            // Personalization here; neither exists on Android).
+            SectionHeader(stringResource(R.string.settings_section_app))
+            SettingsSwitch(
+                icon = Icons.Filled.Build,
+                iconTint = Color(0xFF8E8E93),
+                label = stringResource(R.string.pro_mode),
+                checked = proModeEnabled,
+                onCheckedChange = onProModeChange
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
             SectionHeader(stringResource(R.string.routing))
             SettingsSwitch(
                 icon = Icons.AutoMirrored.Filled.CallMerge,
@@ -262,26 +289,28 @@ private fun SettingsRoot(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            SectionHeader(stringResource(R.string.security))
-            SettingsSwitch(
-                icon = Icons.Filled.Warning,
-                iconTint = Color(0xFFF44336),
-                label = stringResource(R.string.allow_insecure),
-                checked = allowInsecure,
-                onCheckedChange = onAllowInsecureChange
-            )
-            SettingsNavRow(
-                icon = Icons.Filled.VerifiedUser,
-                iconTint = Color(0xFF4CAF50),
-                label = stringResource(R.string.trusted_certificates),
-                onClick = onOpenTrustedCertificates
-            )
+            if (visibility.securitySection) {
+                SectionHeader(stringResource(R.string.security))
+                SettingsSwitch(
+                    icon = Icons.Filled.Warning,
+                    iconTint = Color(0xFFF44336),
+                    label = stringResource(R.string.allow_insecure),
+                    checked = allowInsecure,
+                    onCheckedChange = onAllowInsecureChange
+                )
+                SettingsNavRow(
+                    icon = Icons.Filled.VerifiedUser,
+                    iconTint = Color(0xFF4CAF50),
+                    label = stringResource(R.string.trusted_certificates),
+                    onClick = onOpenTrustedCertificates
+                )
 
-            Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             // Utilities (iOS, between Security and About). Purify/Reflection/MITM do not
             // exist on Android, so TURN is the only item; it is not gated by Pro Mode.
-            if (turnVisible) {
+            if (visibility.utilitiesSection && visibility.turnItem) {
                 SectionHeader(stringResource(R.string.turn_settings_utilities))
                 SettingsNavRow(
                     icon = Icons.Filled.Hub,
@@ -292,6 +321,18 @@ private fun SettingsRoot(
 
                 Spacer(modifier = Modifier.height(16.dp))
             }
+
+            // Diagnostics stays visible without Pro Mode (iOS). Upstream Android kept Logs
+            // inside Advanced Settings, which Pro Mode hides, so they live here now.
+            SectionHeader(stringResource(R.string.diagnostics))
+            SettingsNavRow(
+                icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                iconTint = Color(0xFF607D8B),
+                label = stringResource(R.string.logs),
+                onClick = onOpenLogs
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             SectionHeader(stringResource(R.string.about))
             SettingsNavRow(
@@ -307,14 +348,16 @@ private fun SettingsRoot(
                 onClick = onOpenAcknowledgements
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            if (visibility.advancedSettings) {
+                Spacer(modifier = Modifier.height(16.dp))
 
-            SettingsNavRow(
-                icon = Icons.Filled.Tune,
-                iconTint = Color(0xFF546E7A),
-                label = stringResource(R.string.advanced_settings),
-                onClick = onOpenAdvancedSettings
-            )
+                SettingsNavRow(
+                    icon = Icons.Filled.Tune,
+                    iconTint = Color(0xFF546E7A),
+                    label = stringResource(R.string.advanced_settings),
+                    onClick = onOpenAdvancedSettings
+                )
+            }
         }
     }
 }

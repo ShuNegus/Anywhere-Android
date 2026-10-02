@@ -34,6 +34,7 @@ import com.argsment.anywhere.R
 import com.argsment.anywhere.ui.home.HomeScreen
 import com.argsment.anywhere.ui.proxy.ChainListScreen
 import com.argsment.anywhere.ui.proxy.ProxyListScreen
+import com.argsment.anywhere.ui.settings.ProModeVisibility
 import com.argsment.anywhere.ui.settings.SettingsScreen
 import com.argsment.anywhere.viewmodel.VpnViewModel
 import kotlinx.serialization.Serializable
@@ -54,11 +55,17 @@ data class TopLevelRoute(
 fun AppNavigation(viewModel: VpnViewModel) {
     val navController = rememberNavController()
 
-    // Switch to the Proxies tab when a deep link arrives so ProxyListScreen can consume it.
+    val proModeEnabled by viewModel.proModeEnabled.collectAsState()
+    val visibility = ProModeVisibility.of(proModeEnabled, viewModel.turnSettings.featureEnabled)
+
+    // With Pro Mode, switch to the Proxies tab when a deep link arrives so ProxyListScreen
+    // can consume it (upstream). Without it, go Home, which opens the add sheet itself.
     val pendingDeepLink by viewModel.pendingDeepLinkUrl.collectAsState()
-    LaunchedEffect(pendingDeepLink) {
+    LaunchedEffect(pendingDeepLink, visibility.deepLinkOpensProxiesTab) {
         if (pendingDeepLink != null) {
-            navController.navigate(ProxiesRoute) {
+            // Without Pro Mode: Home, whose add sheet takes the link.
+            val target: Any = if (visibility.deepLinkOpensProxiesTab) ProxiesRoute else HomeRoute
+            navController.navigate(target) {
                 popUpTo(navController.graph.findStartDestination().id) { saveState = true }
                 launchSingleTop = true
                 restoreState = true
@@ -66,7 +73,7 @@ fun AppNavigation(viewModel: VpnViewModel) {
         }
     }
 
-    val topLevelRoutes = listOf(
+    val allTopLevelRoutes = listOf(
         TopLevelRoute(
             titleResId = R.string.home,
             route = HomeRoute,
@@ -92,6 +99,29 @@ fun AppNavigation(viewModel: VpnViewModel) {
             unselectedIcon = Icons.Outlined.Settings
         )
     )
+
+    // Pro Mode hides the Proxies and Chains tabs (spec §10).
+    val topLevelRoutes = allTopLevelRoutes.filter { route ->
+        when (route.route) {
+            ProxiesRoute -> visibility.proxiesTab
+            ChainsRoute -> visibility.chainsTab
+            else -> true
+        }
+    }
+
+    // Turning Pro Mode off while on a hidden tab lands on Home (iOS `MainTabView`).
+    val navBackStackEntryForPro by navController.currentBackStackEntryAsState()
+    LaunchedEffect(visibility.proxiesTab, visibility.chainsTab, navBackStackEntryForPro) {
+        val destination = navBackStackEntryForPro?.destination ?: return@LaunchedEffect
+        val onHiddenTab = (!visibility.proxiesTab && destination.hasRoute(ProxiesRoute::class)) ||
+            (!visibility.chainsTab && destination.hasRoute(ChainsRoute::class))
+        if (onHiddenTab) {
+            navController.navigate(HomeRoute) {
+                popUpTo(navController.graph.findStartDestination().id) { saveState = false }
+                launchSingleTop = true
+            }
+        }
+    }
 
     Scaffold(
         bottomBar = {

@@ -5,6 +5,7 @@ import com.argsment.anywhere.data.model.ProxyConfiguration
 import com.argsment.anywhere.data.model.ProxyError
 import com.argsment.anywhere.vpn.protocol.ProxyConnection
 import com.argsment.anywhere.vpn.protocol.vless.VlessClient
+import com.argsment.anywhere.vpn.turn.TurnRouting
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -168,8 +169,13 @@ class MuxClient(
 
         connecting = true
 
+        // Second outbound dial site besides ProxyClientFactory. On Android the mux carries
+        // UDP flows only, and UDP stays off TURN like on iOS, so this is null unless
+        // TurnRouting.ROUTE_MUX_OVER_TURN is flipped.
+        var turnTunnel: ProxyConnection? = null
         try {
-            val client = VlessClient(configuration)
+            turnTunnel = TurnRouting.tunnelForMux(configuration)
+            val client = VlessClient(configuration, turnTunnel)
             this.vlessClient = client
 
             val connection = client.connectMux()
@@ -187,6 +193,7 @@ class MuxClient(
             }
         } catch (e: Exception) {
             logger.error("Mux connection failed: ${e.message}")
+            turnTunnel?.cancel()
             connecting = false
             closeAll()
             throw e

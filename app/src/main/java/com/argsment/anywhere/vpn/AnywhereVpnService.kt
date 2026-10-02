@@ -16,12 +16,17 @@ import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Binder
 import android.os.IBinder
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.ParcelFileDescriptor
 import com.argsment.anywhere.MainActivity
 import com.argsment.anywhere.data.model.ProxyConfiguration
+import com.argsment.anywhere.turn.TurnEnvironment
 import com.argsment.anywhere.vpn.protocol.tls.CertificatePolicy
+import com.argsment.anywhere.vpn.turn.TurnAutoState
+import com.argsment.anywhere.vpn.turn.TurnRouting
+import com.argsment.anywhere.vpn.turn.TurnStatusMonitor
 import com.argsment.anywhere.vpn.util.AnywhereLogger
 import com.argsment.anywhere.vpn.util.DnsCache
 import com.argsment.anywhere.vpn.util.LogBuffer
@@ -65,6 +70,11 @@ class AnywhereVpnService : VpnService() {
         val service: AnywhereVpnService get() = this@AnywhereVpnService
     }
 
+    override fun onCreate() {
+        super.onCreate()
+        TurnEnvironment.install(this)
+    }
+
     override fun onBind(intent: Intent?): IBinder {
         return if (intent?.action == SERVICE_INTERFACE) {
             // System binding for VPN
@@ -105,7 +115,10 @@ class AnywhereVpnService : VpnService() {
                 }.getOrNull() ?: return START_NOT_STICKY
                 currentConfig = config
                 DnsCache.setActiveProxyDomain(config.serverAddress)
+                // A new server must not inherit the old server's TURN pool.
+                TurnRouting.reset()
                 lwipStack?.switchConfiguration(config)
+                TurnRouting.warmUp(config)
                 updateNotification(config.name)
             }
             null -> {
@@ -148,6 +161,11 @@ class AnywhereVpnService : VpnService() {
     }
 
     private fun startVpn(config: ProxyConfiguration) {
+        // A new tunnel session never inherits TURN pools or an auto-mode verdict.
+        TurnRouting.reset()
+        TurnStatusMonitor.stop()
+        TurnAutoState.stopPilot()
+
         // Stop the existing stack before starting a new one. lwIP uses global
         // state (netif_default) and LWIP_SINGLE_NETIF asserts if netif_add() is
         // called while a netif is already registered. We must wait for
@@ -224,6 +242,15 @@ class AnywhereVpnService : VpnService() {
 
         stack.start(fd, effectiveConfig, ipv6Dns)
 
+        // TURN (spec §5.4/§6): the auto-pilot (Phase B; no-op until installed) decides the
+        // route, the pool for the selected server starts its VK login right away, and the
+        // UI gets a once-a-second status snapshot.
+        TurnEnvironment.settings?.let { settings ->
+            TurnAutoState.startPilot(this, settings) { lwipStack?.handleTurnRouteChanged() }
+        }
+        TurnRouting.warmUp(effectiveConfig)
+        TurnStatusMonitor.start()
+
         // Begin observing the underlying physical network so we can restart
         // the stack when the user roams between Wi-Fi and Cellular.
         startNetworkMonitoring()
@@ -235,6 +262,9 @@ class AnywhereVpnService : VpnService() {
     }
 
     private fun stopVpn() {
+        TurnStatusMonitor.stop()
+        TurnAutoState.stopPilot()
+        TurnRouting.reset()
         stopNetworkMonitoring()
         stopScreenStateMonitoring()
         SocketProtector.clearProtector()
@@ -325,6 +355,25 @@ class AnywhereVpnService : VpnService() {
         // (standard private / CGNAT / loopback ranges from BYPASS_IPV4_ROUTES).
         for (route in PUBLIC_IPV4_ROUTES) {
             builder.addRoute(route.address, route.prefixLength)
+        }
+
+        // Keep this app's own traffic out of the tunnel. The vk-turn-proxy Go core opens
+        // raw sockets (VK API over HTTPS, its DNS dialer, UDP/DTLS to the TURN relay) that
+        // cannot be protect()-ed without changing the core; inside the tun they would loop
+        // back into our own stack. Excluding the package is the whole fix (spec §1,
+        // decision B). Trade-offs:
+        //  * the Kotlin protocol sockets are protected anyway (SocketProtector/NioSocket),
+        //    and in-app latency tests dial through those, so they are unaffected;
+        //  * everything else the app does itself while connected — subscription refresh,
+        //    the TURN metadata request, the captcha WebView (Phase B) — now goes out over
+        //    the underlying network instead of through the proxy. For subscriptions that
+        //    is a behaviour change from upstream (and from iOS, where only the extension
+        //    bypasses the tunnel): a subscription host that is itself blocked can no longer
+        //    be refreshed through the running VPN.
+        try {
+            builder.addDisallowedApplication(packageName)
+        } catch (e: PackageManager.NameNotFoundException) {
+            logger.error("[VPN] Could not exclude own package from the tunnel: ${e.message}")
         }
 
         // Session name for system UI

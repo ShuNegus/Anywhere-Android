@@ -7,6 +7,7 @@ import com.argsment.anywhere.vpn.util.TransportErrorLogger
 import com.argsment.anywhere.vpn.protocol.ProxyClientFactory
 import com.argsment.anywhere.vpn.protocol.ProxyConnection
 import com.argsment.anywhere.vpn.protocol.direct.DirectTcpRelay
+import com.argsment.anywhere.vpn.turn.TurnRouting
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
@@ -492,14 +493,22 @@ class LwipTcpConnection(
         }
 
         scope.launch {
+            // When TURN is on and the subscription advertises a relay for this proxy's
+            // host, the whole proxy stack is built on a TURN stream (the `tunnel`
+            // parameter is the analogue of a sing-box `detour`). Anything that does not
+            // line up — TURN off, no relay, relay unreachable — yields null: plain dial.
+            var turnTunnel: ProxyConnection? = null
             try {
+                turnTunnel = TurnRouting.tunnelFor(configuration)
                 val connection = ProxyClientFactory.connect(
-                    configuration, dstHost, dstPort, initialData
+                    configuration, dstHost, dstPort, initialData, tunnel = turnTunnel
                 )
                 onProxyConnected(connection, handshakeAckBytes = initialData?.size ?: 0)
             } catch (_: CancellationException) {
+                turnTunnel?.cancel()
                 return@launch
             } catch (e: Exception) {
+                turnTunnel?.cancel()
                 lwipExecutor.execute {
                     vlessConnecting = false
                     if (!closed) {
@@ -578,8 +587,11 @@ class LwipTcpConnection(
         initialData: ByteArray?
     ) {
         scope.launch {
+            // TURN, when eligible, carries the entry hop and with it the whole chain.
+            var turnTunnel: ProxyConnection? = null
             try {
-                var previousConnection: ProxyConnection? = null
+                turnTunnel = TurnRouting.tunnelFor(chain.first())
+                var previousConnection: ProxyConnection? = turnTunnel
 
                 for (i in chain.indices) {
                     val hopConfig = chain[i]
@@ -599,8 +611,10 @@ class LwipTcpConnection(
                 )
                 onProxyConnected(connection, handshakeAckBytes = initialData?.size ?: 0)
             } catch (_: CancellationException) {
+                turnTunnel?.cancel()
                 return@launch
             } catch (e: Exception) {
+                turnTunnel?.cancel()
                 lwipExecutor.execute {
                     vlessConnecting = false
                     if (!closed) {

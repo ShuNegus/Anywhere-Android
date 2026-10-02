@@ -474,10 +474,23 @@ class LwipStack(private val context: Context) : NativeBridge.LwipCallback {
      * client activity is served without waiting on a netif rebuild.
      */
     fun handleWake() {
+        invalidateOutboundState("Device wake")
+    }
+
+    /**
+     * The TURN auto-pilot switched this session from direct to TURN (spec §5.5): drop
+     * every flow built on a direct dial so it is re-dialed over the relay. The stack
+     * keeps running. Mirrors iOS `TunnelStack.handleTurnRouteChanged()`.
+     */
+    fun handleTurnRouteChanged() {
+        invalidateOutboundState("TURN route engaged")
+    }
+
+    private fun invalidateOutboundState(reason: String) {
         lwipExecutor.execute {
             if (!running) return@execute
             val config = configuration ?: return@execute
-            logger.info("[VPN] Device wake: invalidating outbound proxy state")
+            logger.info("[VPN] $reason: invalidating outbound proxy state")
 
             muxManager?.closeAll()
             // Recreate MuxManager when Vision+Mux is active (VLESS only).

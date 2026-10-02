@@ -158,4 +158,64 @@
 
     <!-- HTTP/3 -->
     <string name="not_yet_supported">Пока не поддерживается</string>
+
+    <!-- Filled in by the fork (were missing from the upstream ru locale). -->
+    <string name="routing_rules_updated_title">Правила маршрутизации обновлены</string>
+    <string name="routing_rules_updated_message">Прокси, на который ссылались эти правила маршрутизации, удалён. Для них восстановлено значение по умолчанию: %1$s</string>
+    <string name="global_mode">Глобальный режим</string>
+    <string name="proxy_mode_rule">Правила</string>
+    <string name="proxy_mode_global">Глобально</string>
+    <string name="rename">Переименовать</string>
+    <string name="rename_subscription">Переименовать подписку</string>
+    <string name="https_proxy">HTTPS-прокси</string>
+    <string name="http2_proxy">HTTP/2-прокси</string>
+    <string name="link_type">Тип ссылки</string>
+    <string name="encrypted_dns_footer">Не рекомендуется.</string>
+    <string name="advanced_settings">Дополнительные настройки</string>
+    <string name="diagnostics">Диагностика</string>
+    <string name="experimental">Экспериментальное</string>
+    <string name="experimental_features">Экспериментальные функции</string>
+    <string name="experimental_footer">Включает функции в разработке, например создание собственных наборов правил маршрутизации.</string>
+    <string name="other">Другое</string>
+    <string name="remnawave_hwid">Remnawave HWID</string>
+    <string name="remnawave_hwid_prompt">Чтобы продолжить, включите Remnawave HWID.</string>
+    <string name="enable">Включить</string>
+    <string name="block_quic">Блокировать QUIC</string>
+    <string name="custom">Свои</string>
+    <string name="new_rule_set">Новый набор правил</string>
+    <string name="rule_set">Набор правил</string>
+    <string name="rules">Правила</string>
+    <string name="rules_count">Правил: %1$d</string>
+    <string name="rename_rule_set">Переименовать набор правил</string>
+    <string name="add_rule">Добавить правило</string>
+    <string name="import_rules">Импорт правил</string>
+    <string name="route_to">Направлять в</string>
+    <string name="domain_suffix">Суффикс домена</string>
+    <string name="domain_keyword">Ключевое слово домена</string>
+    <string name="ipv4_cidr">IPv4 CIDR</string>
+    <string name="ipv6_cidr">IPv6 CIDR</string>
+    <string name="type_label">Тип</string>
+    <string name="name_label">Название</string>
+    <string name="value_label">Значение</string>
+    <string name="more">Ещё</string>
+    <string name="reset">Сбросить</string>
+    <string name="download_from_internet">Загрузить из интернета</string>
+    <string name="rule_list_url">URL списка правил Anywhere</string>
+    <string name="unknown_content">Неизвестное содержимое.</string>
+    <string name="import_action">Импортировать</string>
+    <string name="parsed_rules">Правил: %1$d</string>
+    <string name="example_domain">example.com</string>
+    <string name="example_keyword">example</string>
+    <string name="example_ipv4">10.0.0.0/8</string>
+    <string name="example_ipv6">2001:db8::/32</string>
+    <string name="move_up">Переместить вверх</string>
+    <string name="move_down">Переместить вниз</string>
+    <string name="standalone">Отдельные</string>
+    <string name="logs">Журналы</string>
+    <string name="select">Выбрать</string>
+    <string name="copy_count">Копировать (%1$d)</string>
+    <string name="no_recent_logs">Нет недавних журналов</string>
+    <string name="grpc_service_name">Имя сервиса</string>
+    <string name="grpc_authority">Authority</string>
+    <string name="user_agent">User-Agent</string>
 </resources>

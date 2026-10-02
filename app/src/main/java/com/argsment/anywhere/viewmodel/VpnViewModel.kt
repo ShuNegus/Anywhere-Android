@@ -21,6 +21,7 @@ import com.argsment.anywhere.data.repository.ChainRepository
 import com.argsment.anywhere.data.repository.ConfigRepository
 import com.argsment.anywhere.data.repository.RuleSetRepository
 import com.argsment.anywhere.data.repository.SubscriptionRepository
+import com.argsment.anywhere.turn.TurnCaptchaMonitor
 import com.argsment.anywhere.turn.TurnEnvironment
 import com.argsment.anywhere.turn.TurnMetadata
 import com.argsment.anywhere.turn.TurnMetadataStore
@@ -120,6 +121,24 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
     private val _connectionStage = MutableStateFlow<ConnectionStage>(ConnectionStage.Idle)
     /** The home graph's stage — the single output of [ConnectionStage.resolve]. */
     val connectionStage: StateFlow<ConnectionStage> = _connectionStage.asStateFlow()
+
+    private val _proModeEnabled = MutableStateFlow(turnSettings.proModeEnabled)
+    /** Pro Mode (spec §10): off = the simplified end-customer UI. */
+    val proModeEnabled: StateFlow<Boolean> = _proModeEnabled.asStateFlow()
+
+    fun setProModeEnabled(enabled: Boolean) {
+        turnSettings.proModeEnabled = enabled
+        _proModeEnabled.value = enabled
+    }
+
+    private val _connectionGraphExpanded = MutableStateFlow(turnSettings.connectionGraphExpanded)
+    /** The home graph is expanded. Changed only by the user; persisted across restarts. */
+    val connectionGraphExpanded: StateFlow<Boolean> = _connectionGraphExpanded.asStateFlow()
+
+    fun setConnectionGraphExpanded(expanded: Boolean) {
+        turnSettings.connectionGraphExpanded = expanded
+        _connectionGraphExpanded.value = expanded
+    }
 
     private val turnWatchdog = TurnProgressWatchdog()
     private var turnWatchJob: Job? = null
@@ -239,6 +258,14 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         ensureValidSelection()
+
+        // The captcha monitor fires the moment a captcha server is up, ahead of the next
+        // phase poll, so the graph and the session's captcha latch follow it directly
+        // (iOS: `HomeView.onChange(captchaMonitor.captchaWaiting)` → `noteCaptchaSeen()`).
+        // Collected here rather than in the home screen so it keeps working on other tabs.
+        viewModelScope.launch {
+            TurnCaptchaMonitor.captchaWaiting.collect { setCaptchaPending(it) }
+        }
 
         // Prime CertificatePolicy with the current allowInsecure + trusted-certificate
         // values so TLS validation has a fresh snapshot before the first connection.

@@ -33,7 +33,7 @@ object TurnEnvironment {
         val app = context.applicationContext
         metadataStore = TurnMetadataStore(File(app.filesDir, TurnMetadataStore.FILE_NAME))
         coreLogFile = File(app.cacheDir, "turn-core.log")
-        settings = TurnSettings.from(app)
+        settings = TurnSettings.from(app).also { it.noteProcessStarted() }
     }
 
     /** For JVM tests only. */

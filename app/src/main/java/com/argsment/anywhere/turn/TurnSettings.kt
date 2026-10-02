@@ -140,6 +140,17 @@ class TurnSettings(
         get() = prefs.getBoolean(Keys.APP_IS_FOREGROUND, false)
         set(value) = prefs.edit().putBoolean(Keys.APP_IS_FOREGROUND, value).apply()
 
+    /**
+     * A new process has no activity on screen yet. [appIsForeground] lives in prefs, so a
+     * process that died while the app was in front (crash, low-memory kill — no `onStop`)
+     * would leave `true` behind, and an always-on VPN restarted in the next process would
+     * then never post the captcha notification. Called once per process, before
+     * `MainActivity.onStart` writes the real value.
+     */
+    fun noteProcessStarted() {
+        appIsForeground = false
+    }
+
     var connectionGraphExpanded: Boolean
         get() = prefs.getBoolean(Keys.CONNECTION_GRAPH_EXPANDED, false)
         set(value) = prefs.edit().putBoolean(Keys.CONNECTION_GRAPH_EXPANDED, value).apply()

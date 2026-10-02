@@ -95,4 +95,12 @@ class TurnSettingsTest {
         clock -= 60_000 // recorded in the future
         assertNull(settings.recentPreflightVerdictRaw(30_000))
     }
+
+    /** A foreground flag left behind by a dead process must not mute captcha notifications. */
+    @Test
+    fun processStartClearsStaleForegroundFlag() {
+        settings.appIsForeground = true
+        TurnSettings(prefs) { clock }.noteProcessStarted()
+        assertFalse(settings.appIsForeground)
+    }
 }

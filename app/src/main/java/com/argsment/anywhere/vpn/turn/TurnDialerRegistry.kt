@@ -7,7 +7,9 @@ import com.argsment.anywhere.turn.TurnSettings
 import com.argsment.anywhere.vpn.protocol.ProxyConnection
 import com.argsment.anywhere.vpn.util.AnywhereLogger
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withContext
 import app.anywhere.turn.anywhere.Anywhere
+import java.util.concurrent.atomic.AtomicReference
 
 private val logger = AnywhereLogger("TurnDialerRegistry")
 
@@ -130,20 +132,44 @@ class TurnDialerRegistry internal constructor(
         val dialer = dialer(host) ?: return null
         return try {
             dialer.waitReady()
-            val stream = try {
-                dialer.openStream()
-            } catch (e: TurnError) {
-                // A session may be mid-reconnect; Go round-robins, so one retry usually
-                // lands on a healthy one.
-                logger.debug("TURN stream to $host failed (${e.message}), retrying once")
-                dialer.openStream()
-            }
+            val stream = openStream(dialer, host)
             TurnProxyConnection(stream) { dialer.noteStreamClosed() }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             logger.info("TURN tunnel to $host unavailable (${e.message}); falling back to a direct dial")
             null
+        }
+    }
+
+    /**
+     * Opens a stream off the caller's thread. Go's `Dial` is blocking (smux writes the SYN
+     * frame and can wait on a congested session for up to 30 s), and the caller is an
+     * lwIP connection whose dispatcher is the single lwIP executor — blocking it would
+     * freeze every flow of the stack. A stream that opens while the caller is being
+     * cancelled is closed here rather than leaked (withContext discards the result).
+     */
+    private suspend fun openStream(dialer: TurnDialerHandle, host: String): TurnStream {
+        val opened = AtomicReference<TurnStream?>(null)
+        try {
+            return withContext(TurnDispatchers.blocking) {
+                val stream = try {
+                    dialer.openStream()
+                } catch (e: TurnError) {
+                    // A session may be mid-reconnect; Go round-robins, so one retry usually
+                    // lands on a healthy one.
+                    logger.debug("TURN stream to $host failed (${e.message}), retrying once")
+                    dialer.openStream()
+                }
+                opened.set(stream)
+                stream
+            }
+        } catch (e: CancellationException) {
+            opened.getAndSet(null)?.let {
+                it.close()
+                dialer.noteStreamClosed()
+            }
+            throw e
         }
     }
 

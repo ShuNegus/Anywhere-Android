@@ -7,6 +7,7 @@ import com.argsment.anywhere.turn.TurnMetadataStore
 import com.argsment.anywhere.turn.TurnMode
 import com.argsment.anywhere.turn.TurnServerInfo
 import com.argsment.anywhere.turn.TurnSettings
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -29,6 +30,9 @@ class TurnDialerRegistryTest {
         var closed = false
         var ready = true
         var streams = 0
+        var openThread: String? = null
+        var openGate: java.util.concurrent.CountDownLatch? = null
+        val streamIoClosed = java.util.concurrent.atomic.AtomicInteger()
         override val sessionCount get() = if (closed) 0 else peers
         override val phase get() = if (closed) 0 else TurnPhase.READY.rawValue
         override val credentialSets = 1
@@ -38,11 +42,13 @@ class TurnDialerRegistryTest {
         override val openStreamCount get() = streams
         override suspend fun waitReady(timeoutMs: Long?) { if (!ready) throw TurnError.NotReady() }
         override fun openStream(): TurnStream {
+            openThread = Thread.currentThread().name
+            openGate?.await()
             streams++
             return TurnStream(object : TurnStreamIo {
                 override fun read(max: Int): ByteArray = throw Exception("EOF")
                 override fun write(data: ByteArray) {}
-                override fun close() {}
+                override fun close() { streamIoClosed.incrementAndGet() }
             }, host)
         }
         override fun noteStreamClosed() { streams-- }
@@ -200,5 +206,33 @@ class TurnDialerRegistryTest {
 
         dialer.ready = false
         assertNull(registry.tunnel("a.example.invalid"))
+    }
+
+    /** Go's Dial blocks; it must not run on the caller's (single lwIP executor) thread. */
+    @Test
+    fun streamIsOpenedOffTheCallersThread() = runBlocking {
+        subscribe(hosts = arrayOf("a.example.invalid"))
+        val tunnel = registry.tunnel("a.example.invalid")!!
+        val opener = created.single().openThread.orEmpty()
+        assertTrue("opened on $opener", opener.startsWith("turn-io-"))
+        tunnel.cancel()
+    }
+
+    /** A stream that opens while the flow is being cancelled is closed, not leaked. */
+    @Test
+    fun streamOpenedDuringCancellationIsClosed() = runBlocking {
+        subscribe(hosts = arrayOf("a.example.invalid"))
+        val dialer = registry.dialer("a.example.invalid") as FakeDialer
+        val gate = java.util.concurrent.CountDownLatch(1)
+        dialer.openGate = gate
+        val job = launch(kotlinx.coroutines.Dispatchers.Default) { registry.tunnel("a.example.invalid") }
+        while (dialer.openThread == null) kotlinx.coroutines.delay(5)
+        job.cancel()
+        gate.countDown()
+        job.join()
+        // TurnStream.close() hands io.close() to the pool; give it a moment.
+        repeat(200) { if (dialer.streamIoClosed.get() == 0) kotlinx.coroutines.delay(5) }
+        assertEquals(0, dialer.openStreamCount)
+        assertEquals(1, dialer.streamIoClosed.get())
     }
 }

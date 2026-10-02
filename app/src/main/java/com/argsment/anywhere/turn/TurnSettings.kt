@@ -64,6 +64,9 @@ class TurnSettings(
         const val PREFLIGHT_VERDICT = "preflightVerdict"
         const val PREFLIGHT_VERDICT_AT = "preflightVerdictAt"
         const val CONNECTION_GRAPH_EXPANDED = "connectionGraphExpanded"
+
+        /** Keys whose change can flip [wantsTurnPhaseWatch]. */
+        val PHASE_WATCH_INPUTS = setOf(TURN_FEATURE_ENABLED, TURN_MODE, TURN_ENABLED, TURN_FORCED)
     }
 
     /**
@@ -111,6 +114,10 @@ class TurnSettings(
     /** The mode routing decisions follow; the settings screen shows [turnMode]. */
     val effectiveTurnMode: TurnMode
         get() = if (turnForced) TurnMode.ON else turnMode
+
+    /** Whether a connected session should be watching the TURN phase (spec §6.2). */
+    val wantsTurnPhaseWatch: Boolean
+        get() = turnActiveForSession && effectiveTurnMode != TurnMode.OFF
 
     /** Manual VK Calls join link; overrides the one the subscription ships. Trimmed on write. */
     var vkLink: String

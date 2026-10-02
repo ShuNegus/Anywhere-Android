@@ -103,4 +103,30 @@ class TurnSettingsTest {
         TurnSettings(prefs) { clock }.noteProcessStarted()
         assertFalse(settings.appIsForeground)
     }
+
+    /** Mid-session mode changes restart/stop the VM's phase watch off these. */
+    @Test
+    fun phaseWatchFollowsModeMasterSwitchAndForce() {
+        settings.turnMode = TurnMode.OFF
+        assertFalse(settings.wantsTurnPhaseWatch)
+        settings.turnMode = TurnMode.AUTO
+        assertTrue(settings.wantsTurnPhaseWatch)
+        settings.turnMode = TurnMode.ON
+        assertTrue(settings.wantsTurnPhaseWatch)
+        settings.featureEnabled = false
+        assertFalse(settings.wantsTurnPhaseWatch)
+        settings.turnForced = true
+        assertTrue("a forced session watches whatever the switches say", settings.wantsTurnPhaseWatch)
+        settings.turnMode = TurnMode.OFF
+        assertTrue(settings.wantsTurnPhaseWatch)
+
+        val inputs = TurnSettings.Keys.PHASE_WATCH_INPUTS
+        listOf(
+            TurnSettings.Keys.TURN_FEATURE_ENABLED,
+            TurnSettings.Keys.TURN_MODE,
+            TurnSettings.Keys.TURN_ENABLED,
+            TurnSettings.Keys.TURN_FORCED,
+        ).forEach { assertTrue(it, it in inputs) }
+        assertFalse(TurnSettings.Keys.TURN_VK_LINK in inputs)
+    }
 }

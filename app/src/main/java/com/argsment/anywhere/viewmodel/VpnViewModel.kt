@@ -142,6 +142,10 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
 
     private val turnWatchdog = TurnProgressWatchdog()
     private var turnWatchJob: Job? = null
+    /** Declared before the init block that registers it; see [syncTurnPhaseWatch]. */
+    private val turnSettingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key in TurnSettings.Keys.PHASE_WATCH_INPUTS) syncTurnPhaseWatch()
+    }
     /** The tunnel reached CONNECTED in this session: a later DISCONNECTED is a teardown, not a failed start. */
     private var sessionReachedConnected = false
     private var userRequestedDisconnect = false
@@ -258,6 +262,9 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         ensureValidSelection()
+
+        // Same preferences file the TURN settings live in (TurnSettings.PREFS_NAME).
+        prefs.registerOnSharedPreferenceChangeListener(turnSettingsListener)
 
         // The captcha monitor fires the moment a captcha server is up, ahead of the next
         // phase poll, so the graph and the session's captcha latch follow it directly
@@ -548,7 +555,7 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
      * READY: the phase has to be able to fall back when a pool reconnects.
      */
     private fun startTurnPhaseWatch() {
-        if (!turnSettings.turnActiveForSession || turnSettings.effectiveTurnMode == TurnMode.OFF) return
+        if (!turnSettings.wantsTurnPhaseWatch) return
         if (turnWatchJob != null) return
         turnWatchJob = viewModelScope.launch {
             while (isActive) {
@@ -577,6 +584,26 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         outcome.failure?.let { noteFailure(it) }
+    }
+
+    /**
+     * The TURN mode or the master switch changed while connected: start or stop the watch
+     * as if the session had connected under the new setting. Without this, switching
+     * Off → Auto/On mid-session left the graph blind to TURN until the next reconnect.
+     * (iOS has the same gap: its watch is only (re)evaluated on `.connected`.)
+     */
+    private fun syncTurnPhaseWatch() {
+        if (_vpnStatus.value != VpnStatus.CONNECTED) return
+        if (turnSettings.wantsTurnPhaseWatch) {
+            if (turnWatchJob == null) {
+                logger.info("[TURN] mode changed while connected; starting the phase watch")
+                startTurnPhaseWatch()
+            }
+        } else if (turnWatchJob != null) {
+            logger.info("[TURN] mode changed while connected; stopping the phase watch")
+            stopTurnPhaseWatch()
+            updateConnectionStage()
+        }
     }
 
     private fun stopTurnPhaseWatch() {
@@ -749,6 +776,7 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        prefs.unregisterOnSharedPreferenceChangeListener(turnSettingsListener)
         stopStatsPolling()
         unbindFromService()
     }

@@ -118,10 +118,19 @@ class AnywhereVpnService : VpnService() {
                 }.getOrNull() ?: return START_NOT_STICKY
                 currentConfig = config
                 DnsCache.setActiveProxyDomain(config.serverAddress)
-                // A new server must not inherit the old server's TURN pool.
-                TurnRouting.reset()
-                lwipStack?.switchConfiguration(config)
-                TurnRouting.warmUp(config)
+                // A new server must not inherit the old server's TURN pool. The reset runs
+                // on the lwIP executor once the old stack's flows are gone, so none of them
+                // can build a pool for the old relay in between (they would otherwise live
+                // until tunnel stop: an extra VK login, maybe a captcha).
+                val stack = lwipStack
+                if (stack != null) {
+                    stack.switchConfiguration(config) {
+                        TurnRouting.reset()
+                        TurnRouting.warmUp(config)
+                    }
+                } else {
+                    TurnRouting.reset()
+                }
                 updateNotification(config.name)
             }
             null -> {

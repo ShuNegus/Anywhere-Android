@@ -235,4 +235,27 @@ class TurnDialerRegistryTest {
         assertEquals(0, dialer.openStreamCount)
         assertEquals(1, dialer.streamIoClosed.get())
     }
+
+    /** Server-switch race: a flow started before a reset must not build a pool after it. */
+    @Test
+    fun staleGenerationIsRefusedAfterReset() {
+        subscribe(hosts = arrayOf("old.example.invalid", "new.example.invalid"))
+        val before = registry.generation()
+        assertNotNull(registry.dialer("old.example.invalid", before))
+        registry.reset()
+        assertTrue(created.single().closed)
+
+        // The old stack's flow (or warm-up) resumes after the reset: refused, nothing built.
+        assertNull(registry.dialer("old.example.invalid", before))
+        assertNull(runBlocking { registry.tunnel("old.example.invalid", before) })
+        assertEquals(1, created.size)
+        assertTrue(registry.statistics().isEmpty())
+
+        // The new session's flows go through.
+        val after = registry.generation()
+        assertTrue(after != before)
+        assertNotNull(registry.dialer("new.example.invalid", after))
+        assertNotNull(registry.dialer("new.example.invalid"))
+        assertEquals(listOf("new.example.invalid"), registry.statistics().map { it.host })
+    }
 }

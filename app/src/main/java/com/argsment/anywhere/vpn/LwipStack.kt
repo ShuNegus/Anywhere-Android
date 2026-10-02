@@ -78,6 +78,16 @@ class LwipStack(private val context: Context) : NativeBridge.LwipCallback {
     // Restart throttling for handleNetworkPathChange.
     private var lastRestartNanos: Long = 0
     private var deferredRestart: ScheduledFuture<*>? = null
+
+    /**
+     * A configuration switch waiting for the (possibly throttled) restart; lwipExecutor
+     * only. Kept apart from the restart request itself so a later restart for another
+     * reason (network change, settings) that replaces a deferred one cannot drop the
+     * switch or run it with the old configuration.
+     */
+    private var pendingSwitch: PendingSwitch? = null
+
+    private class PendingSwitch(val config: ProxyConfiguration, val onStackDown: (() -> Unit)?)
     private val restartThrottleNanos: Long = TunnelConstants.restartThrottleNanos
 
     /** Active country bypass selection (empty = disabled). Used only for change
@@ -527,10 +537,20 @@ class LwipStack(private val context: Context) : NativeBridge.LwipCallback {
      *
      * Only restarts the lwIP stack — does NOT reapply tunnel network settings.
      * The TUN fd stays open and the packet read loop continues uninterrupted.
-     * `onTunnelSettingsNeedReapply` is only called when IPv6/DNS settings change. */
-    fun switchConfiguration(newConfig: ProxyConfiguration) {
+     * `onTunnelSettingsNeedReapply` is only called when IPv6/DNS settings change.
+     *
+     * [onStackDown] runs on the lwIP executor after every flow of the old stack has been
+     * torn down and before the new stack accepts any — the slot for per-server state
+     * (the TURN pools) that no old flow may touch again. */
+    fun switchConfiguration(newConfig: ProxyConfiguration, onStackDown: (() -> Unit)? = null) {
         lwipExecutor.execute {
             logger.info("[VPN] Configuration switched; reconnecting active connections")
+            // Two quick switches: the last configuration wins, both hooks still run.
+            val previousHook = pendingSwitch?.onStackDown
+            val hook: (() -> Unit)? = if (previousHook == null) onStackDown else {
+                { previousHook(); onStackDown?.invoke() }
+            }
+            pendingSwitch = PendingSwitch(newConfig, hook)
             restartStack(newConfig, ipv6DNSEnabled)
         }
     }
@@ -644,12 +664,24 @@ class LwipStack(private val context: Context) : NativeBridge.LwipCallback {
     }
 
     /** Performs the actual stack restart unconditionally. Must be called on lwipExecutor. */
-    private fun restartStackNow(config: ProxyConfiguration, ipv6Dns: Boolean) {
+    private fun restartStackNow(requestedConfig: ProxyConfiguration, ipv6Dns: Boolean) {
         deferredRestart?.cancel(false)
         deferredRestart = null
         lastRestartNanos = System.nanoTime()
 
+        val switch = pendingSwitch
+        pendingSwitch = null
+        val config = switch?.config ?: requestedConfig
+
         shutdownInternal()
+
+        switch?.onStackDown?.let { hook ->
+            try {
+                hook()
+            } catch (e: Exception) {
+                logger.error("[LWIPStack] Configuration switch hook failed: ${e.message}")
+            }
+        }
 
         this.configuration = config
         this.ipv6DNSEnabled = ipv6Dns

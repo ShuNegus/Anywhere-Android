@@ -48,13 +48,16 @@ object TurnRouting {
     suspend fun tunnelFor(hop: ProxyConfiguration): ProxyConnection? {
         val settings = TurnEnvironment.settings ?: return null
         if (!settings.turnActiveForSession) return null
+        val registry = TurnDialerRegistry.shared
+        // Captured before any suspension: a flow that waits out a reset (server switch)
+        // must not build a pool for the relay it was started for.
+        val generation = registry.generation()
         // In auto mode the first flows of a session can outrun the probe; waiting here
         // keeps them from dialing direct out of a censored network.
         if (settings.effectiveTurnMode == TurnMode.AUTO) TurnAutoState.waitForDecision(settings)
-        val registry = TurnDialerRegistry.shared
         if (!registry.isActive()) return null
         if (hop.outboundProtocol !in ELIGIBLE_PROTOCOLS) return null
-        val tunnel = registry.tunnel(hop.serverAddress)
+        val tunnel = registry.tunnel(hop.serverAddress, generation)
         if (tunnel == null) {
             logger.debug("[TURN] no relay for ${hop.serverAddress}, dialing directly")
         } else {
@@ -78,17 +81,23 @@ object TurnRouting {
      */
     fun warmUp(configuration: ProxyConfiguration) {
         warmUpJob?.cancel()
+        val generation = TurnDialerRegistry.shared.generation()
         warmUpJob = scope.launch {
             val settings = TurnEnvironment.settings ?: return@launch
             if (!settings.turnActiveForSession) return@launch
             if (settings.effectiveTurnMode == TurnMode.AUTO) TurnAutoState.waitForDecision(settings)
             val hop = relayHop(configuration)
             if (hop.outboundProtocol !in ELIGIBLE_PROTOCOLS) return@launch
-            TurnDialerRegistry.shared.dialer(hop.serverAddress)
+            TurnDialerRegistry.shared.dialer(hop.serverAddress, generation)
         }
     }
 
-    /** Tunnel stop / configuration switch: no new session may inherit a stale pool. */
+    /**
+     * Tunnel stop / configuration switch: no new session may inherit a stale pool.
+     * On a switch this must run on the lwIP executor between tearing the old stack down
+     * and starting the new one ([com.argsment.anywhere.vpn.LwipStack.switchConfiguration]
+     * does that), so no flow of the old stack can reach the registry after it.
+     */
     fun reset() {
         warmUpJob?.cancel()
         warmUpJob = null

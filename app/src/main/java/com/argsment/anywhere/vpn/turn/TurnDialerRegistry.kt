@@ -37,6 +37,15 @@ class TurnDialerRegistry internal constructor(
     private val dialers = LinkedHashMap<String, TurnDialerHandle>()
     /** The user settings the live dialers were built from; guarded by [lock]. */
     private var fingerprint = ""
+    /**
+     * Bumped by every [reset]; guarded by [lock]. A caller that captured an older value
+     * (a flow of the previous stack, a warm-up for the previous server) is refused a
+     * dialer, so nothing created for a stale session outlives the reset.
+     */
+    private var generation = 0L
+
+    /** The current registry generation, to pass back to [dialer]/[tunnel]. */
+    fun generation(): Long = synchronized(lock) { generation }
 
     /**
      * Whether TURN should be used at all right now. In `auto` this follows the
@@ -65,8 +74,11 @@ class TurnDialerRegistry internal constructor(
     /**
      * The dialer for [host], created on first use. `null` when TURN is off,
      * unconfigured, or the subscription lists no usable relay for that host.
+     *
+     * @param expectedGeneration the [generation] the caller started under; when a
+     *   [reset] has happened since, `null` is returned and no dialer is created.
      */
-    fun dialer(host: String): TurnDialerHandle? {
+    fun dialer(host: String, expectedGeneration: Long? = null): TurnDialerHandle? {
         if (!isActive()) return null
         val settings = settingsProvider() ?: return null
         val store = storeProvider() ?: return null
@@ -78,7 +90,10 @@ class TurnDialerRegistry internal constructor(
         // Only what the *user* configured goes in here — never the memory-derived cap.
         val newFingerprint = TurnPoolFingerprint.make(vkLink, requestedPeers, manualCaptcha)
 
+        fun isStale() = expectedGeneration != null && expectedGeneration != generation
+
         val stale: List<TurnDialerHandle> = synchronized(lock) {
+            if (isStale()) return null
             if (fingerprint == newFingerprint || dialers.isEmpty()) {
                 fingerprint = newFingerprint
                 emptyList()
@@ -95,7 +110,10 @@ class TurnDialerRegistry internal constructor(
             stale.forEach { it.close() }
         }
 
-        synchronized(lock) { dialers[server.host] }?.let { return it }
+        synchronized(lock) {
+            if (isStale()) return null
+            dialers[server.host]
+        }?.let { return it }
 
         // Trimmed to what the budget can carry — applied to this new pool only.
         val peers = memory.effectivePeers(requestedPeers)
@@ -105,6 +123,10 @@ class TurnDialerRegistry internal constructor(
         // the moment it exists, so two racing flows must never both build one.
         // Construction is cheap — `peer_addr` is an IP, no DNS happens under the lock.
         return synchronized(lock) {
+            if (isStale()) {
+                coreLog("[registry] refused a dialer for ${server.host}: requested before a reset")
+                return null
+            }
             dialers[server.host] ?: try {
                 factory.create(server, vkLink, defaults, peers, manualCaptcha).also {
                     dialers[server.host] = it
@@ -128,8 +150,8 @@ class TurnDialerRegistry internal constructor(
      * for the flow, with an info log line (TURN is on because the direct path is
      * expected to be blocked, so a fallback deserves a trace).
      */
-    suspend fun tunnel(host: String): ProxyConnection? {
-        val dialer = dialer(host) ?: return null
+    suspend fun tunnel(host: String, expectedGeneration: Long? = null): ProxyConnection? {
+        val dialer = dialer(host, expectedGeneration) ?: return null
         return try {
             dialer.waitReady()
             val stream = openStream(dialer, host)
@@ -196,6 +218,7 @@ class TurnDialerRegistry internal constructor(
             val list = dialers.values.toList()
             dialers.clear()
             fingerprint = ""
+            generation++
             list
         }
         if (all.isEmpty()) return

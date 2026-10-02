@@ -22,6 +22,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.filled.CallMerge
 import androidx.compose.material.icons.filled.AltRoute
+import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Shield
@@ -59,6 +60,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.argsment.anywhere.R
 import com.argsment.anywhere.data.rules.CountryBypassCatalog
+import com.argsment.anywhere.ui.turn.TurnSettingsScreen
+import com.argsment.anywhere.ui.turn.TurnTint
 import com.argsment.anywhere.viewmodel.VpnViewModel
 import java.util.Locale
 
@@ -71,6 +74,7 @@ fun SettingsScreen(viewModel: VpnViewModel) {
     var showTrustedCertificates by remember { mutableStateOf(false) }
     var showAdvancedSettings by remember { mutableStateOf(false) }
     var showInsecureAlert by remember { mutableStateOf(false) }
+    var showTurnSettings by remember { mutableStateOf(false) }
 
     var globalMode by remember { mutableStateOf(viewModel.proxyMode == "global") }
     var bypassCountryCode by remember { mutableStateOf(viewModel.bypassCountryCode) }
@@ -85,8 +89,9 @@ fun SettingsScreen(viewModel: VpnViewModel) {
     // this, the NavHost handles back press by popping the SettingsRoute,
     // sending the user to Home instead of back to the Settings list.
     val activeSubScreen = showRoutingRules || showAcknowledgements ||
-            showTrustedCertificates || showAdvancedSettings
+            showTrustedCertificates || showAdvancedSettings || showTurnSettings
     BackHandler(enabled = activeSubScreen) {
+        showTurnSettings = false
         showRoutingRules = false
         showAcknowledgements = false
         showTrustedCertificates = false
@@ -98,6 +103,7 @@ fun SettingsScreen(viewModel: VpnViewModel) {
         showAcknowledgements -> "acks"
         showTrustedCertificates -> "certs"
         showAdvancedSettings -> "advanced"
+        showTurnSettings -> "turn"
         else -> "root"
     }
 
@@ -115,6 +121,10 @@ fun SettingsScreen(viewModel: VpnViewModel) {
             "advanced" -> AdvancedSettingsScreen(
                 viewModel = viewModel,
                 onBack = { showAdvancedSettings = false }
+            )
+            "turn" -> TurnSettingsScreen(
+                viewModel = viewModel,
+                onBack = { showTurnSettings = false }
             )
             else -> SettingsRoot(
                 globalMode = globalMode,
@@ -153,6 +163,9 @@ fun SettingsScreen(viewModel: VpnViewModel) {
                 },
                 onOpenRoutingRules = { showRoutingRules = true },
                 onOpenTrustedCertificates = { showTrustedCertificates = true },
+                // iOS: the TURN item exists only while the master switch is on.
+                turnVisible = viewModel.turnSettings.featureEnabled,
+                onOpenTurn = { showTurnSettings = true },
                 onOpenAcknowledgements = { showAcknowledgements = true },
                 onOpenAdvancedSettings = { showAdvancedSettings = true }
             )
@@ -197,6 +210,8 @@ private fun SettingsRoot(
     onOpenTelegram: () -> Unit,
     onOpenRoutingRules: () -> Unit,
     onOpenTrustedCertificates: () -> Unit,
+    turnVisible: Boolean,
+    onOpenTurn: () -> Unit,
     onOpenAcknowledgements: () -> Unit,
     onOpenAdvancedSettings: () -> Unit
 ) {
@@ -263,6 +278,20 @@ private fun SettingsRoot(
             )
 
             Spacer(modifier = Modifier.height(16.dp))
+
+            // Utilities (iOS, between Security and About). Purify/Reflection/MITM do not
+            // exist on Android, so TURN is the only item; it is not gated by Pro Mode.
+            if (turnVisible) {
+                SectionHeader(stringResource(R.string.turn_settings_utilities))
+                SettingsNavRow(
+                    icon = Icons.Filled.Hub,
+                    iconTint = TurnTint,
+                    label = stringResource(R.string.turn_settings_title),
+                    onClick = onOpenTurn
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+            }
 
             SectionHeader(stringResource(R.string.about))
             SettingsNavRow(

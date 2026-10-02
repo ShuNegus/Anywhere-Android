@@ -19,15 +19,14 @@ private val logger = AnywhereLogger("TurnDialerRegistry")
  * cheap to reuse, so they are created lazily and live as long as the tunnel session.
  * [reset] tears them all down — on tunnel stop and on configuration switch.
  *
- * @param autoDecision the auto-pilot's decision, or `null` while no auto-pilot is
- *   installed (Phase A): `auto` then behaves like `on`.
+ * @param autoDecision the auto-pilot's current decision ([TurnAutoState.decision]).
  */
 class TurnDialerRegistry internal constructor(
     private val settingsProvider: () -> TurnSettings?,
     private val storeProvider: () -> TurnMetadataStore?,
     private val factory: TurnDialerFactory,
     private val memory: TurnMemory,
-    private val autoDecision: () -> TurnAutoDecision?,
+    private val autoDecision: () -> TurnAutoDecision,
     private val coreLog: (String) -> Unit,
 ) {
 
@@ -48,9 +47,9 @@ class TurnDialerRegistry internal constructor(
         return when (settings.effectiveTurnMode) {
             TurnMode.OFF -> false
             TurnMode.ON -> true
-            // TODO(Phase B): once TurnAutoState.autoPilotFactory is installed, autoDecision()
-            //  is non-null and only an explicit TURN verdict activates the relay.
-            TurnMode.AUTO -> autoDecision()?.let { it == TurnAutoDecision.TURN } ?: true
+            // Only an explicit verdict activates the relay; until the probe lands (or when
+            // it says direct/offline) flows dial directly.
+            TurnMode.AUTO -> autoDecision() == TurnAutoDecision.TURN
         }
     }
 
@@ -189,7 +188,7 @@ class TurnDialerRegistry internal constructor(
                     configureGo = { limit, gc -> Anywhere.configureMemory(limit, gc.toLong()) },
                     log = { logger.info(it) },
                 ),
-                autoDecision = { if (TurnAutoState.isAutoPilotInstalled) TurnAutoState.decision else null },
+                autoDecision = { TurnAutoState.decision },
                 coreLog = { TurnCoreLogFile.append(it) },
             )
         }

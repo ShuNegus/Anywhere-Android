@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TURN auto mode, forced TURN, watchdogs and the connection-stage model (Phase B1, spec §6–§8, §11.2, §13). -->
+<resources>
+    <string name="vpn_error_no_internet">No internet connection. Check your network and try again.</string>
+    <string name="vpn_error_turn_unavailable">TURN is not available for this server: the subscription lists no relay for it, or no VK Calls link is set.</string>
+
+    <string name="home_power_force_turn_action">Connect through TURN</string>
+    <string name="home_power_force_turn_hint">Hold for two seconds to connect through TURN.</string>
+
+    <string name="graph_node_network_check">Checking Network</string>
+    <string name="graph_node_vpn_connect">Connecting to VPN</string>
+    <string name="graph_node_whitelist_check">Checking Restrictions</string>
+    <string name="graph_node_turn_tunnel">Opening TURN Tunnel</string>
+    <string name="graph_node_captcha">Solving Captcha</string>
+    <string name="graph_node_connected">Connected</string>
+    <string name="graph_node_connected_adding_peers">Connected · Peers %1$d/%2$d</string>
+    <string name="graph_node_connected_captcha_for_peers">Connected · Captcha for More Peers</string>
+
+    <string name="graph_collapsed_idle">Connection Stages</string>
+    <string name="graph_collapsed_via_turn">Connected via TURN</string>
+    <string name="graph_collapsed_direct">Connected Directly</string>
+    <string name="graph_collapsed_failed">Failed: %1$s</string>
+
+    <string name="graph_error_vpn_start">The VPN could not be started.</string>
+    <string name="graph_error_network_lost">The network became unreachable after the VPN started.</string>
+    <string name="graph_error_turn_timeout">The TURN tunnel could not be opened. Traffic will use the direct route.</string>
+    <string name="graph_error_captcha_timeout">The captcha was not solved in time.</string>
+</resources>

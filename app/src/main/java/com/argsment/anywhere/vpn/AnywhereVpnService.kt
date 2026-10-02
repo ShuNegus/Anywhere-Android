@@ -25,6 +25,7 @@ import com.argsment.anywhere.data.model.ProxyConfiguration
 import com.argsment.anywhere.turn.TurnCaptchaNotifier
 import com.argsment.anywhere.turn.TurnEnvironment
 import com.argsment.anywhere.vpn.protocol.tls.CertificatePolicy
+import com.argsment.anywhere.vpn.turn.AndroidTurnAutoPilot
 import com.argsment.anywhere.vpn.turn.TurnAutoState
 import com.argsment.anywhere.vpn.turn.TurnRouting
 import com.argsment.anywhere.vpn.turn.TurnStatusMonitor
@@ -74,6 +75,7 @@ class AnywhereVpnService : VpnService() {
     override fun onCreate() {
         super.onCreate()
         TurnEnvironment.install(this)
+        AndroidTurnAutoPilot.install()
     }
 
     override fun onBind(intent: Intent?): IBinder {
@@ -243,7 +245,7 @@ class AnywhereVpnService : VpnService() {
 
         stack.start(fd, effectiveConfig, ipv6Dns)
 
-        // TURN (spec §5.4/§6): the auto-pilot (Phase B; no-op until installed) decides the
+        // TURN (spec §5.4/§6): the auto-pilot (auto mode only) decides the
         // route, the pool for the selected server starts its VK login right away, and the
         // UI gets a once-a-second status snapshot.
         TurnEnvironment.settings?.let { settings ->
@@ -520,6 +522,9 @@ class AnywhereVpnService : VpnService() {
                         val sleepSecs = (System.currentTimeMillis() - sleepTimestampMillis) / 1000L
                         sleepTimestampMillis = 0L
                         logger.info("[VPN] Device woke up after ${sleepSecs}s")
+                        // iOS `wake()`: the device may have woken on another network; the
+                        // auto-pilot re-probes only if it has nothing settled.
+                        TurnAutoState.notePilotWake()
                         if (sleepSecs >= WAKE_RESTART_THRESHOLD_SECS) {
                             logger.warning(
                                 "[VPN] Long sleep detected (${sleepSecs}s); invalidating outbound state"

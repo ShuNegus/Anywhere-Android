@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_error_no_internet">Нет подключения к интернету. Проверьте сеть и попробуйте снова.</string>
+    <string name="vpn_error_turn_unavailable">TURN для этого сервера недоступен: в подписке нет реле для него или не задана ссылка VK Calls.</string>
+
+    <string name="home_power_force_turn_action">Подключиться через TURN</string>
+    <string name="home_power_force_turn_hint">Удерживайте две секунды, чтобы подключиться через TURN.</string>
+
+    <string name="graph_node_network_check">Проверка сети</string>
+    <string name="graph_node_vpn_connect">Подключение к VPN</string>
+    <string name="graph_node_whitelist_check">Проверка белых списков</string>
+    <string name="graph_node_turn_tunnel">Открытие TURN-туннеля</string>
+    <string name="graph_node_captcha">Решение капчи</string>
+    <string name="graph_node_connected">Подключено</string>
+    <string name="graph_node_connected_adding_peers">Подключено · пиры %1$d/%2$d</string>
+    <string name="graph_node_connected_captcha_for_peers">Подключено · капча для новых пиров</string>
+
+    <string name="graph_collapsed_idle">Этапы подключения</string>
+    <string name="graph_collapsed_via_turn">Подключено через обход</string>
+    <string name="graph_collapsed_direct">Подключено напрямую</string>
+    <string name="graph_collapsed_failed">Ошибка: %1$s</string>
+
+    <string name="graph_error_vpn_start">Не удалось запустить VPN.</string>
+    <string name="graph_error_network_lost">Сеть стала недоступна после запуска VPN.</string>
+    <string name="graph_error_turn_timeout">Не удалось открыть TURN-туннель. Трафик пойдёт напрямую.</string>
+    <string name="graph_error_captcha_timeout">Капча не была решена вовремя.</string>
+</resources>

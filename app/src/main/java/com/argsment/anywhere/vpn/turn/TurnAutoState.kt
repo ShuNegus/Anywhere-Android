@@ -20,8 +20,8 @@ enum class TurnAutoDecision(val rawValue: String) {
 }
 
 /**
- * The auto-mode network watcher (iOS `TurnAutoPilot`, spec §7.5). **Phase B** provides
- * the implementation (connectivity probe + `NetworkCallback` fingerprinting) and plugs it
+ * The auto-mode network watcher (iOS `TurnAutoPilot`, spec §7.5). The implementation is
+ * [AndroidTurnAutoPilot] (connectivity probe + `NetworkCallback` fingerprinting), plugged
  * in through [TurnAutoState.autoPilotFactory]. It reports through
  * [TurnAutoState.setDecision].
  */
@@ -35,18 +35,23 @@ interface TurnAutoPilot {
 
     /** Called when the tunnel stops. Must cancel all probes. */
     fun stop()
+
+    /** The device woke up (iOS `PacketTunnelProvider.wake()`); no network in hand. */
+    fun noteWake() {}
 }
 
 /**
  * The auto-mode decision shared by everything that honours it. Mirrors iOS
- * `TurnAutoState`, plus the hook through which Phase B installs the auto-pilot.
+ * `TurnAutoState`, plus the hook through which the auto-pilot is installed
+ * ([AndroidTurnAutoPilot.install], called when the VPN service is created).
  *
- * Until an auto-pilot is installed, `auto` behaves like `on` (see
- * [TurnDialerRegistry.isActive]) and flows never wait for a decision.
+ * Only an explicit `TURN` verdict activates the relay in auto mode (see
+ * [TurnDialerRegistry.isActive]); flows wait up to three seconds for the first verdict.
+ * Should no auto-pilot be installed (JVM tests), flows do not wait and auto stays direct.
  */
 object TurnAutoState {
 
-    /** Set by Phase B (e.g. from `Application.onCreate` or the service). */
+    /** Set by [AndroidTurnAutoPilot.install]. */
     @Volatile
     var autoPilotFactory: ((Context) -> TurnAutoPilot)? = null
 
@@ -104,12 +109,17 @@ object TurnAutoState {
         }
     }
 
-    /** Service hook: starts the installed auto-pilot (no-op until Phase B installs one). */
+    /** Service hook: starts the installed auto-pilot. */
     fun startPilot(context: Context, settings: TurnSettings, onSwitchToTurn: () -> Unit) {
         stopPilot()
         if (!settings.turnActiveForSession || settings.effectiveTurnMode != TurnMode.AUTO) return
         val factory = autoPilotFactory ?: return
         pilot = factory(context).also { it.start(onSwitchToTurn) }
+    }
+
+    /** Service hook: the device woke up from sleep. */
+    fun notePilotWake() {
+        pilot?.noteWake()
     }
 
     /** Service hook: stops the auto-pilot and resets the decision. */

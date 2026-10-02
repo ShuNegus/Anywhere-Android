@@ -54,7 +54,7 @@ class TurnDialerRegistryTest {
     private val store = TurnMetadataStore(null)
     private val created = mutableListOf<FakeDialer>()
     private var available = 0L
-    private var autoDecision: TurnAutoDecision? = null
+    private var autoDecision: TurnAutoDecision = TurnAutoDecision.UNDECIDED
     private val goLimits = mutableListOf<Pair<Long, Int>>()
 
     private val registry = TurnDialerRegistry(
@@ -163,14 +163,14 @@ class TurnDialerRegistryTest {
     }
 
     @Test
-    fun autoFollowsThePilotOnceInstalled() {
+    fun autoFollowsThePilotsDecision() {
         subscribe(hosts = arrayOf("a.example.invalid"))
         settings.turnMode = TurnMode.AUTO
-        autoDecision = null // Phase A: no auto-pilot, auto behaves like on
-        assertTrue(registry.isActive())
         autoDecision = TurnAutoDecision.UNDECIDED
         assertFalse(registry.isActive())
         autoDecision = TurnAutoDecision.DIRECT
+        assertFalse(registry.isActive())
+        autoDecision = TurnAutoDecision.OFFLINE
         assertFalse(registry.isActive())
         autoDecision = TurnAutoDecision.TURN
         assertTrue(registry.isActive())

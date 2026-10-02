@@ -47,6 +47,7 @@ import com.argsment.anywhere.data.model.Subscription
 import com.argsment.anywhere.data.model.ProxyConfiguration
 import com.argsment.anywhere.data.network.SubscriptionDomainHelper
 import com.argsment.anywhere.data.network.SubscriptionFetcher
+import com.argsment.anywhere.turn.TurnMetadata
 import com.argsment.anywhere.viewmodel.VpnViewModel
 import kotlinx.coroutines.launch
 import java.net.URL
@@ -69,7 +70,7 @@ fun AddProxyScreen(
     onDismiss: () -> Unit,
     onShowManualAdd: () -> Unit,
     onImport: (ProxyConfiguration) -> Unit,
-    onSubscriptionImport: (List<ProxyConfiguration>, Subscription) -> Unit,
+    onSubscriptionImport: (List<ProxyConfiguration>, Subscription, TurnMetadata?) -> Unit,
     initialLink: String? = null
 ) {
     val context = LocalContext.current
@@ -122,7 +123,7 @@ fun AddProxyScreen(
                     total = result.total,
                     expire = result.expire
                 )
-                onSubscriptionImport(result.configurations, subscription)
+                onSubscriptionImport(result.configurations, subscription, result.turn)
             } catch (e: Exception) {
                 linkErrorMessage = e.message ?: context.getString(R.string.import_failed)
                 showLinkError = true

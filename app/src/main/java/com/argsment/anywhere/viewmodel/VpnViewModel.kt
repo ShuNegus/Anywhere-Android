@@ -21,6 +21,10 @@ import com.argsment.anywhere.data.repository.ChainRepository
 import com.argsment.anywhere.data.repository.ConfigRepository
 import com.argsment.anywhere.data.repository.RuleSetRepository
 import com.argsment.anywhere.data.repository.SubscriptionRepository
+import com.argsment.anywhere.turn.TurnEnvironment
+import com.argsment.anywhere.turn.TurnMetadata
+import com.argsment.anywhere.turn.TurnMetadataStore
+import com.argsment.anywhere.turn.TurnSettings
 import com.argsment.anywhere.vpn.protocol.tls.CertificatePolicy
 import com.argsment.anywhere.vpn.AnywhereVpnService
 import com.argsment.anywhere.vpn.util.AnywhereLogger
@@ -54,6 +58,14 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs: SharedPreferences =
         application.getSharedPreferences("anywhere_settings", Context.MODE_PRIVATE)
+
+    init {
+        TurnEnvironment.install(application)
+    }
+
+    /** TURN preferences (spec §3); the service reads the same instance. */
+    val turnSettings: TurnSettings = TurnEnvironment.settings!!
+    val turnMetadataStore: TurnMetadataStore = TurnEnvironment.metadataStore!!
     private val json = Json { ignoreUnknownKeys = true }
 
     private val _vpnStatus = MutableStateFlow(VpnStatus.DISCONNECTED)
@@ -470,8 +482,13 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
         return configRepository.getAll().filter { it.subscriptionId == forSubscription.id }
     }
 
-    fun addSubscription(configurations: List<ProxyConfiguration>, subscription: Subscription) {
+    fun addSubscription(
+        configurations: List<ProxyConfiguration>,
+        subscription: Subscription,
+        turn: TurnMetadata? = null
+    ) {
         subscriptionRepository.add(subscription)
+        if (turn != null) turnMetadataStore.setMetadata(turn, subscription.id)
         configurations.forEach { config ->
             configRepository.add(config.copy(subscriptionId = subscription.id))
         }
@@ -490,6 +507,7 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
 
     fun deleteSubscription(subscription: Subscription) {
         subscriptionRepository.delete(subscription.id, configRepository)
+        turnMetadataStore.removeMetadata(subscription.id)
         ensureValidSelection()
         checkOrphanedRuleSets()
     }
@@ -533,6 +551,9 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
             expire = result.expire ?: subscription.expire
         )
         subscriptionRepository.update(updated)
+
+        // Always, including null: a `turn` block withdrawn on the server must stop being used.
+        turnMetadataStore.setMetadata(result.turn, subscription.id)
 
         ensureValidSelection()
     }

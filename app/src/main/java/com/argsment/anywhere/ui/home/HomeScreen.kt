@@ -445,8 +445,8 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
                     viewModel.addConfiguration(config)
                     showingAddSheet = false
                 },
-                onSubscriptionImport = { configs, subscription ->
-                    viewModel.addSubscription(configs, subscription)
+                onSubscriptionImport = { configs, subscription, turn ->
+                    viewModel.addSubscription(configs, subscription, turn)
                     showingAddSheet = false
                 }
             )

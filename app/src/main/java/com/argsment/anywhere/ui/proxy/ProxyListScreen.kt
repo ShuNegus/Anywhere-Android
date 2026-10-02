@@ -259,8 +259,8 @@ fun ProxyListScreen(viewModel: VpnViewModel) {
                     showingAddSheet = false
                     deepLinkPrefill = null
                 },
-                onSubscriptionImport = { configs, subscription ->
-                    viewModel.addSubscription(configs, subscription)
+                onSubscriptionImport = { configs, subscription, turn ->
+                    viewModel.addSubscription(configs, subscription, turn)
                     showingAddSheet = false
                     deepLinkPrefill = null
                 }

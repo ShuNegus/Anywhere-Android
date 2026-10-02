@@ -24,7 +24,17 @@ import com.argsment.anywhere.data.repository.SubscriptionRepository
 import com.argsment.anywhere.turn.TurnEnvironment
 import com.argsment.anywhere.turn.TurnMetadata
 import com.argsment.anywhere.turn.TurnMetadataStore
+import com.argsment.anywhere.turn.TurnMode
 import com.argsment.anywhere.turn.TurnSettings
+import com.argsment.anywhere.R
+import com.argsment.anywhere.vpn.turn.ConnectivityProbe
+import com.argsment.anywhere.vpn.turn.ConnectivityVerdict
+import com.argsment.anywhere.vpn.turn.ProbeProfile
+import com.argsment.anywhere.vpn.turn.TurnAutoDecision
+import com.argsment.anywhere.vpn.turn.TurnPhase
+import com.argsment.anywhere.vpn.turn.TurnPoolSummary
+import com.argsment.anywhere.vpn.turn.TurnRouting
+import com.argsment.anywhere.vpn.turn.TurnStatusMonitor
 import com.argsment.anywhere.vpn.protocol.tls.CertificatePolicy
 import com.argsment.anywhere.vpn.AnywhereVpnService
 import com.argsment.anywhere.vpn.util.AnywhereLogger
@@ -35,6 +45,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -71,6 +82,52 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
     private val _vpnStatus = MutableStateFlow(VpnStatus.DISCONNECTED)
     val vpnStatus: StateFlow<VpnStatus> = _vpnStatus.asStateFlow()
     private var pendingReconnect = false
+
+    // MARK: - TURN session state (spec §6–§8). The home screen renders [connectionStage].
+
+    private val _isPreflighting = MutableStateFlow(false)
+    /** A reachability probe runs ahead of the tunnel (auto mode); the button stays busy. */
+    val isPreflighting: StateFlow<Boolean> = _isPreflighting.asStateFlow()
+
+    private val _connectionFailure = MutableStateFlow<ConnectionFailure?>(null)
+    /**
+     * The step the connection died on. Deliberately outlives the DISCONNECTED that
+     * follows a failure — the red node has to stay on screen. Cleared by the next connect.
+     */
+    val connectionFailure: StateFlow<ConnectionFailure?> = _connectionFailure.asStateFlow()
+
+    private val _turnPhase = MutableStateFlow<TurnPhase?>(null)
+    /** The least advanced phase among the TURN pools, polled while connected. Never latched. */
+    val turnPhase: StateFlow<TurnPhase?> = _turnPhase.asStateFlow()
+
+    private val _turnAutoDecision = MutableStateFlow<TurnAutoDecision?>(null)
+    /** The auto-pilot's decision while the effective mode is auto, otherwise `null`. */
+    val turnAutoDecision: StateFlow<TurnAutoDecision?> = _turnAutoDecision.asStateFlow()
+
+    private val _turnPool = MutableStateFlow<TurnPoolSummary?>(null)
+    /** The TURN pools folded together (peers X/N, captcha for more peers). */
+    val turnPool: StateFlow<TurnPoolSummary?> = _turnPool.asStateFlow()
+
+    private val _captchaSeenInSession = MutableStateFlow(false)
+    val captchaSeenInSession: StateFlow<Boolean> = _captchaSeenInSession.asStateFlow()
+
+    private val _captchaPending = MutableStateFlow(false)
+
+    private val _turnForcedInSession = MutableStateFlow(false)
+    /** This session was forced through TURN (power button held); mirrors [TurnSettings.turnForced]. */
+    val turnForcedInSession: StateFlow<Boolean> = _turnForcedInSession.asStateFlow()
+
+    private val _connectionStage = MutableStateFlow<ConnectionStage>(ConnectionStage.Idle)
+    /** The home graph's stage — the single output of [ConnectionStage.resolve]. */
+    val connectionStage: StateFlow<ConnectionStage> = _connectionStage.asStateFlow()
+
+    private val turnWatchdog = TurnProgressWatchdog()
+    private var turnWatchJob: Job? = null
+    /** The tunnel reached CONNECTED in this session: a later DISCONNECTED is a teardown, not a failed start. */
+    private var sessionReachedConnected = false
+    private var userRequestedDisconnect = false
+    /** The reconnect in flight was asked to go through TURN (a long press while connected). */
+    private var pendingReconnectForcesTurn = false
 
     private val _bytesIn = MutableStateFlow(0L)
     val bytesIn: StateFlow<Long> = _bytesIn.asStateFlow()
@@ -147,13 +204,13 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
             // so `isRunning` reflects whether `startVpn` set up the TUN and
             // lwIP stack successfully.
             if (localBinder.service.isRunning) {
-                _vpnStatus.value = VpnStatus.CONNECTED
+                applyStatus(VpnStatus.CONNECTED)
                 startStatsPolling()
                 selectedConfiguration?.let { syncProxyServerAddresses(it) }
             } else if (_vpnStatus.value == VpnStatus.CONNECTING) {
                 // Service bound but tunnel setup failed (e.g. TUN establish
                 // failed) — don't leave the UI stuck on the spinner.
-                _vpnStatus.value = VpnStatus.DISCONNECTED
+                applyStatus(VpnStatus.DISCONNECTED)
             }
         }
 
@@ -166,9 +223,11 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
 
     val isButtonDisabled: Boolean
         get() = (selectedConfiguration == null) ||
-            (_vpnStatus.value != VpnStatus.CONNECTED && _vpnStatus.value != VpnStatus.DISCONNECTED)
+            (_vpnStatus.value != VpnStatus.CONNECTED && _vpnStatus.value != VpnStatus.DISCONNECTED) ||
+            _isPreflighting.value
 
     init {
+        _turnForcedInSession.value = turnSettings.turnForced
         val savedChainId = prefs.getString("selectedChainId", null)?.let {
             runCatching { UUID.fromString(it) }.getOrNull()
         }
@@ -228,9 +287,61 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun connect() {
+    /**
+     * Connects through TURN whatever the TURN mode or the master switch says — the power
+     * button held for two seconds (spec §8, iOS `connectForcingTurn()`). Reconnects when
+     * the tunnel is already up. Refuses with an error when the selected server has no
+     * TURN relay or no VK link is known, rather than silently connecting directly.
+     */
+    fun connectForcingTurn() {
+        val configuration = selectedConfiguration ?: return
+        if (!isTurnAvailable(configuration)) {
+            _startError.value = getApplication<Application>().getString(R.string.vpn_error_turn_unavailable)
+            return
+        }
+        when (_vpnStatus.value) {
+            VpnStatus.CONNECTED, VpnStatus.CONNECTING, VpnStatus.REASSERTING -> {
+                if (turnSettings.turnForced) return // already going through TURN
+                pendingReconnectForcesTurn = true
+                reconnect()
+            }
+            VpnStatus.DISCONNECTED -> connect(forceTurn = true)
+            VpnStatus.DISCONNECTING -> {}
+        }
+    }
+
+    /**
+     * The selected server has a usable TURN relay in a subscription and there is a VK
+     * link to dial with — what the service will need to open the tunnel. The relay is
+     * looked up for the hop TURN actually carries (a chain's entry hop).
+     */
+    fun isTurnAvailable(configuration: ProxyConfiguration): Boolean {
+        val host = TurnRouting.relayHop(configuration).serverAddress
+        val server = turnMetadataStore.server(host) ?: return false
+        if (!server.isUsable) return false
+        val manual = turnSettings.vkLink.trim()
+        val shipped = turnMetadataStore.subscriptionVKLink()?.trim().orEmpty()
+        return manual.isNotEmpty() || shipped.isNotEmpty()
+    }
+
+    /**
+     * @param forceTurn route this session through TURN whatever the mode says. An
+     *   ordinary connect clears a previous session's force.
+     */
+    fun connect(forceTurn: Boolean = false) {
+        if (_isPreflighting.value) return
         val config = selectedConfiguration ?: return
         val context = getApplication<Application>()
+
+        // Before anything reads the mode (the pre-flight here, routing in the service).
+        turnSettings.turnForced = forceTurn
+        _turnForcedInSession.value = forceTurn
+        _connectionFailure.value = null
+        turnWatchdog.reset()
+        _captchaSeenInSession.value = false
+        userRequestedDisconnect = false
+        sessionReachedConnected = false
+        updateConnectionStage()
 
         val prepareIntent = VpnService.prepare(context)
         if (prepareIntent != null) {
@@ -270,11 +381,13 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startVpnService(config: ProxyConfiguration) {
         val context = getApplication<Application>()
-        _vpnStatus.value = VpnStatus.CONNECTING
-
-        syncRoutingConfigurationToNE()
 
         viewModelScope.launch {
+            if (!runPreflight()) return@launch
+
+            applyStatus(VpnStatus.CONNECTING)
+            syncRoutingConfigurationToNE()
+
             // Resolve server domain on IO thread (avoids NetworkOnMainThreadException)
             val resolvedConfig = withContext(Dispatchers.IO) {
                 resolveServerAddress(applyGlobalAllowInsecure(config))
@@ -296,14 +409,50 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
                 bindToService()
             } catch (e: Exception) {
                 logger.warning("Failed to send configuration to tunnel: ${e.message}")
-                _vpnStatus.value = VpnStatus.DISCONNECTED
+                _connectionFailure.value = ConnectionFailure.VPN_START_FAILED
+                applyStatus(VpnStatus.DISCONNECTED)
                 _startError.value = e.message
             }
         }
     }
 
+    /**
+     * Auto mode only (it is the only mode that must tell "no network" from "censored
+     * network"): probe before the tunnel starts and refuse to start on a dead network.
+     * The verdict is handed to the service's auto-pilot, which cross-checks its own first
+     * probe against it. Returns whether to go on.
+     */
+    private suspend fun runPreflight(): Boolean {
+        if (!turnSettings.turnActiveForSession || turnSettings.effectiveTurnMode != TurnMode.AUTO) return true
+        _isPreflighting.value = true
+        updateConnectionStage()
+        val verdict = try {
+            ConnectivityProbe.classify(getApplication(), ProbeProfile.PREFLIGHT)
+        } finally {
+            _isPreflighting.value = false
+        }
+        turnSettings.setPreflightVerdictRaw(verdict.rawValue)
+        if (verdict == ConnectivityVerdict.OFFLINE) {
+            noteFailure(ConnectionFailure.NO_NETWORK)
+            updateConnectionStage()
+            return false
+        }
+        updateConnectionStage()
+        return true
+    }
+
+    /** Explicit disconnect: a forced TURN session ends with it, a pending reconnect is dropped. */
     fun disconnect() {
-        _vpnStatus.value = VpnStatus.DISCONNECTING
+        turnSettings.turnForced = false
+        _turnForcedInSession.value = false
+        pendingReconnect = false
+        pendingReconnectForcesTurn = false
+        stopTunnel()
+    }
+
+    private fun stopTunnel() {
+        userRequestedDisconnect = true
+        applyStatus(VpnStatus.DISCONNECTING)
         val context = getApplication<Application>()
 
         stopStatsPolling()
@@ -318,23 +467,160 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
         unbindFromService()
         _bytesIn.value = 0
         _bytesOut.value = 0
-        _vpnStatus.value = VpnStatus.DISCONNECTED
-
-        if (pendingReconnect) {
-            pendingReconnect = false
-            connect()
-        }
+        applyStatus(VpnStatus.DISCONNECTED)
     }
 
     /**
-     * Stops the VPN and automatically reconnects once disconnected.
-     * Used when switching configurations while connected.
+     * Stops the VPN and automatically reconnects once disconnected. Keeps a forced TURN
+     * session forced.
      */
     fun reconnect() {
         val status = _vpnStatus.value
         if (status != VpnStatus.CONNECTED && status != VpnStatus.CONNECTING) return
         pendingReconnect = true
-        disconnect()
+        stopTunnel()
+    }
+
+    /** Status transitions and their side effects (iOS `applyStatus`). */
+    private fun applyStatus(status: VpnStatus) {
+        val previous = _vpnStatus.value
+        _vpnStatus.value = status
+        when (status) {
+            VpnStatus.CONNECTED -> {
+                sessionReachedConnected = true
+                if (_connectionFailure.value == ConnectionFailure.VPN_START_FAILED) _connectionFailure.value = null
+                startTurnPhaseWatch()
+            }
+            VpnStatus.DISCONNECTED, VpnStatus.DISCONNECTING -> {
+                stopTurnPhaseWatch()
+                if (status == VpnStatus.DISCONNECTED) {
+                    // Dropped out of CONNECTING on its own: the tunnel never came up.
+                    if (!sessionReachedConnected && !userRequestedDisconnect && previous == VpnStatus.CONNECTING) {
+                        noteFailure(ConnectionFailure.VPN_START_FAILED)
+                    }
+                    if (pendingReconnect) {
+                        pendingReconnect = false
+                        // A reconnect keeps a forced TURN session forced.
+                        val force = pendingReconnectForcesTurn || turnSettings.turnForced
+                        pendingReconnectForcesTurn = false
+                        updateConnectionStage()
+                        connect(forceTurn = force)
+                        return
+                    }
+                }
+            }
+            else -> {}
+        }
+        updateConnectionStage()
+    }
+
+    // MARK: - TURN phase watch (spec §6.2/§6.3)
+
+    /**
+     * Polls the service's TURN snapshot once a second while connected. Keeps polling past
+     * READY: the phase has to be able to fall back when a pool reconnects.
+     */
+    private fun startTurnPhaseWatch() {
+        if (!turnSettings.turnActiveForSession || turnSettings.effectiveTurnMode == TurnMode.OFF) return
+        if (turnWatchJob != null) return
+        turnWatchJob = viewModelScope.launch {
+            while (isActive) {
+                val snapshot = TurnStatusMonitor.snapshot.value
+                _turnPhase.value = snapshot.phase
+                _turnAutoDecision.value = TurnAutoDecision.entries.firstOrNull { it.rawValue == snapshot.autoDecision }
+                _turnPool.value = snapshot.pool
+                evaluateTurnProgress()
+                updateConnectionStage()
+                delay(TurnStatusMonitor.POLL_INTERVAL_MS)
+            }
+        }
+    }
+
+    private fun evaluateTurnProgress() {
+        val mode = if (turnSettings.turnActiveForSession) turnSettings.effectiveTurnMode else null
+        val outcome = turnWatchdog.evaluate(_turnPhase.value, _turnAutoDecision.value, _turnPool.value, mode)
+        _captchaSeenInSession.value = turnWatchdog.captchaSeenInSession
+        if (outcome.alertOffline) {
+            _startError.value = ConnectionFailure.NETWORK_LOST.message(getApplication())
+        }
+        if (outcome.clearTimeoutFailure) {
+            val failure = _connectionFailure.value
+            if (failure == ConnectionFailure.TURN_TIMEOUT || failure == ConnectionFailure.CAPTCHA_TIMEOUT) {
+                _connectionFailure.value = null
+            }
+        }
+        outcome.failure?.let { noteFailure(it) }
+    }
+
+    private fun stopTurnPhaseWatch() {
+        turnWatchJob?.cancel()
+        turnWatchJob = null
+        _turnPhase.value = null
+        _turnAutoDecision.value = null
+        _turnPool.value = null
+        turnWatchdog.reset()
+        _captchaSeenInSession.value = false
+        // `connectionFailure` deliberately survives: the red node has to outlive the
+        // DISCONNECTED that follows the failure it describes.
+    }
+
+    /** Records a failure once and surfaces it as an alert alongside the red node. */
+    private fun noteFailure(failure: ConnectionFailure) {
+        if (_connectionFailure.value == failure) return
+        _connectionFailure.value = failure
+        _startError.value = failure.message(getApplication())
+    }
+
+    /** The captcha came up (sheet shown / monitor saw it): latch it for the session. */
+    fun noteCaptchaSeen() {
+        turnWatchdog.noteCaptchaSeen()
+        _captchaSeenInSession.value = true
+        updateConnectionStage()
+    }
+
+    /**
+     * Feed from the captcha monitor (`captchaWaiting`): a captcha server is up. The graph
+     * moves to the captcha node ahead of the next phase poll.
+     */
+    fun setCaptchaPending(waiting: Boolean) {
+        _captchaPending.value = waiting
+        if (waiting) noteCaptchaSeen() else updateConnectionStage()
+    }
+
+    /** Recompute the stage, e.g. after the TURN mode was changed in settings. */
+    fun refreshConnectionStage() = updateConnectionStage()
+
+    /** The mode the graph follows: forced → ON; feature off → null; else the stored mode. */
+    private fun graphTurnMode(): TurnMode? = when {
+        _turnForcedInSession.value -> TurnMode.ON
+        turnSettings.featureEnabled -> turnSettings.turnMode
+        else -> null
+    }
+
+    private fun updateConnectionStage() {
+        _connectionStage.value = ConnectionStage.resolve(
+            status = _vpnStatus.value,
+            isPreflighting = _isPreflighting.value,
+            turnMode = graphTurnMode(),
+            autoDecision = _turnAutoDecision.value,
+            turnPhase = _turnPhase.value,
+            turnUsable = _turnPool.value?.usable,
+            captchaPending = _captchaPending.value,
+            captchaSeen = _captchaSeenInSession.value,
+            failure = _connectionFailure.value,
+        )
+    }
+
+    /**
+     * The selection is gone (its subscription or configuration was deleted) while the
+     * tunnel runs: there is nothing left for it to carry (spec §6.4).
+     */
+    private fun disconnectIfSelectionGone() {
+        if (selectedConfiguration != null) return
+        val status = _vpnStatus.value
+        if (status == VpnStatus.CONNECTED || status == VpnStatus.CONNECTING || status == VpnStatus.REASSERTING) {
+            disconnect()
+        }
     }
 
     private fun switchConfig(config: ProxyConfiguration) {
@@ -386,7 +672,7 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
                 } else if (service != null && !service.isRunning &&
                     _vpnStatus.value == VpnStatus.CONNECTED) {
                     // Service is bound but no longer running — it actually died
-                    _vpnStatus.value = VpnStatus.DISCONNECTED
+                    applyStatus(VpnStatus.DISCONNECTED)
                     _bytesIn.value = 0
                     _bytesOut.value = 0
                     break
@@ -476,6 +762,7 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         checkOrphanedRuleSets()
+        disconnectIfSelectionGone()
     }
 
     fun configurations(forSubscription: Subscription): List<ProxyConfiguration> {
@@ -510,6 +797,7 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
         turnMetadataStore.removeMetadata(subscription.id)
         ensureValidSelection()
         checkOrphanedRuleSets()
+        disconnectIfSelectionGone()
     }
 
     suspend fun updateSubscription(subscription: Subscription) {

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- TURN core (Phase A). Kept apart from strings.xml so parallel UI work does not conflict. -->
+<resources>
+    <string name="turn_mode_auto">Auto</string>
+    <string name="turn_mode_on">Enabled</string>
+    <string name="turn_mode_off">Disabled</string>
+
+    <string name="turn_error_unavailable">The TURN transport is not available in this build.</string>
+    <string name="turn_error_missing_vk_link">No VK Calls link is configured for TURN.</string>
+    <string name="turn_error_unsupported_server">No TURN relay is available for %1$s.</string>
+    <string name="turn_error_not_ready">No TURN session could be established.</string>
+    <string name="turn_error_stream_closed">The TURN stream is closed.</string>
+</resources>

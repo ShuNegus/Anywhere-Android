@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="turn_mode_auto">Авто</string>
+    <string name="turn_mode_on">Включён</string>
+    <string name="turn_mode_off">Выключен</string>
+
+    <string name="turn_error_unavailable">Транспорт TURN недоступен в этой сборке.</string>
+    <string name="turn_error_missing_vk_link">Для TURN не указана ссылка VK Calls.</string>
+    <string name="turn_error_unsupported_server">Для %1$s нет доступного TURN-реле.</string>
+    <string name="turn_error_not_ready">Не удалось установить TURN-сессию.</string>
+    <string name="turn_error_stream_closed">Поток TURN закрыт.</string>
+</resources>

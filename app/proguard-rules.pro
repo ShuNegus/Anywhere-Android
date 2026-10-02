@@ -93,3 +93,13 @@
 -keep class com.google.android.gms.vision.** { *; }
 -dontwarn com.google.mlkit.**
 -dontwarn com.google.android.gms.internal.mlkit_**
+
+# ============================================================================
+# vk-turn-proxy Go core (gomobile bind, app/libs/turn.aar). The Go side calls
+# back into these classes over JNI by name (LogSink, Seq, refnum plumbing).
+# ============================================================================
+-keep class app.anywhere.turn.** { *; }
+-keep class go.** { *; }
+-keep interface app.anywhere.turn.** { *; }
+-dontwarn app.anywhere.turn.**
+-dontwarn go.**

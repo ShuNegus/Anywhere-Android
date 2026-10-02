@@ -52,3 +52,7 @@ keystore.jks
 
 # Log files
 *.log
+
+# gomobile build of the vk-turn-proxy core (scripts/build-turn-aar.sh)
+app/libs/turn.aar
+app/libs/turn-sources.jar

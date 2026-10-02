@@ -20,7 +20,9 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.argsment.anywhere"
+        // Our own id: upstream publishes com.argsment.anywhere on Google Play. The Kotlin
+        // `namespace` above stays upstream's so R/BuildConfig imports are untouched.
+        applicationId = "app.anywhere.client"
         minSdk = 26
         targetSdk = 36
         versionCode = 21
@@ -61,6 +63,10 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        // JVM unit tests touch code that logs through android.util.Log.
+        unitTests.isReturnDefaultValues = true
+    }
     externalNativeBuild {
         cmake {
             path = file("src/main/jni/CMakeLists.txt")
@@ -87,6 +93,8 @@ dependencies {
     implementation(libs.coroutines.android)
     implementation(libs.bouncycastle.bcprov)
     implementation("org.brotli:dec:0.1.2")
+    // vk-turn-proxy Go core (gomobile). Not in git — build it with scripts/build-turn-aar.sh.
+    implementation(files("libs/turn.aar"))
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

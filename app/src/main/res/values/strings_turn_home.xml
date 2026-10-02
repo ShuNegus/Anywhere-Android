@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Home screen redesign and Pro Mode (spec §10/§11/§13). -->
+<resources>
+    <!-- Connection graph, accessibility -->
+    <string name="graph_a11y_idle">Connection not started</string>
+    <string name="graph_a11y_stage">Connection stage: %1$s</string>
+    <string name="graph_a11y_expand_hint">Show connection stages</string>
+    <string name="graph_a11y_collapse_hint">Hide connection stages</string>
+
+    <!-- Server list -->
+    <string name="server_list_header">SERVERS</string>
+    <string name="server_list_measure_ping">Measure server ping</string>
+    <string name="server_list_add_subscription">Add Subscription</string>
+    <string name="server_list_delete_subscription">Delete Subscription</string>
+    <string name="server_list_delete_confirm_title">Delete “%1$s”?</string>
+    <string name="server_list_delete_confirm_message">Its servers will be removed from the list.</string>
+    <string name="server_list_empty_title">No Subscription</string>
+    <string name="server_list_empty_body">Add a subscription to see the server list</string>
+
+    <!-- Statistics sheet -->
+    <string name="stats_sheet_title">Statistics</string>
+    <string name="stats_sheet_done">Done</string>
+
+    <!-- Settings -->
+    <string name="settings_section_app">App</string>
+    <string name="pro_mode">Pro Mode</string>
+</resources>

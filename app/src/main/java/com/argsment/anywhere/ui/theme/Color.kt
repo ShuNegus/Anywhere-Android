@@ -19,3 +19,9 @@ val GradientDisconnectedStartLight = Color(0xFFCBD1F3)
 val GradientDisconnectedEndLight = Color(0xFFC3D9EF)
 val GradientDisconnectedStartDark = Color(0xFF221C3A)
 val GradientDisconnectedEndDark = Color(0xFF111F3A)
+// Home screen backgrounds (iOS asset catalog `connectedBackground*`/`disconnectedBackground*`,
+// spec §11.1). The home screen is always dark.
+val HomeConnectedBackgroundStart = Color(0xFF1665C0)
+val HomeConnectedBackgroundEnd = Color(0xFF0B254F)
+val HomeDisconnectedBackgroundStart = Color(0xFF3C3E43)
+val HomeDisconnectedBackgroundEnd = Color(0xFF161719)

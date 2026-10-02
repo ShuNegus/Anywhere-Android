@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="graph_a11y_idle">Подключение не начато</string>
+    <string name="graph_a11y_stage">Этап подключения: %1$s</string>
+    <string name="graph_a11y_expand_hint">Показать этапы подключения</string>
+    <string name="graph_a11y_collapse_hint">Скрыть этапы подключения</string>
+
+    <string name="server_list_header">СЕРВЕРЫ</string>
+    <string name="server_list_measure_ping">Проверить пинг серверов</string>
+    <string name="server_list_add_subscription">Добавить подписку</string>
+    <string name="server_list_delete_subscription">Удалить подписку</string>
+    <string name="server_list_delete_confirm_title">Удалить «%1$s»?</string>
+    <string name="server_list_delete_confirm_message">Её серверы исчезнут из списка.</string>
+    <string name="server_list_empty_title">Нет подписки</string>
+    <string name="server_list_empty_body">Добавьте подписку, чтобы появился список серверов</string>
+
+    <string name="stats_sheet_title">Статистика</string>
+    <string name="stats_sheet_done">Готово</string>
+
+    <string name="settings_section_app">Приложение</string>
+    <string name="pro_mode">Режим Pro</string>
+</resources>

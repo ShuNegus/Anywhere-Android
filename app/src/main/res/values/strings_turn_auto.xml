@@ -16,7 +16,7 @@
     <string name="graph_node_connected_adding_peers">Connected · Peers %1$d/%2$d</string>
     <string name="graph_node_connected_captcha_for_peers">Connected · Captcha for More Peers</string>
 
-    <string name="graph_collapsed_idle">Connection Stages</string>
+    <string name="graph_collapsed_idle">Tap to connect</string>
     <string name="graph_collapsed_via_turn">Connected via the Backup Route</string>
     <string name="graph_collapsed_direct">Connected Directly</string>
     <string name="graph_collapsed_failed">Failed: %1$s</string>

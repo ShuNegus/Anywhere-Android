@@ -454,17 +454,21 @@ private fun ServerRow(
     }
 }
 
-/** Fixed width in every state, so names do not jump when the numbers arrive. */
+/**
+ * At least [PingWidth] in every state, so names do not jump when the numbers arrive; wider
+ * only when a label ("таймаут") needs it — it never wraps onto a second line.
+ */
 @Composable
 private fun PingCell(result: LatencyResult?) {
-    Box(modifier = Modifier.width(PingWidth), contentAlignment = Alignment.CenterEnd) {
+    Box(modifier = Modifier.widthIn(min = PingWidth), contentAlignment = Alignment.CenterEnd) {
         when (result) {
             LatencyResult.Testing -> MeasuringPlaceholder()
             is LatencyResult.Success -> Text(
-                text = "${result.ms} ms",
+                text = stringResource(R.string.latency_ms, result.ms),
                 style = TextStyle(fontSize = 13.sp, fontFeatureSettings = "tnum"),
                 color = Color.White.copy(alpha = 0.52f),
                 maxLines = 1,
+                softWrap = false,
             )
             LatencyResult.Failed -> Text(
                 text = stringResource(R.string.timeout),

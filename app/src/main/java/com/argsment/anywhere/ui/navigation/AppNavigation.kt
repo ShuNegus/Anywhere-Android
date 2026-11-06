@@ -1,7 +1,17 @@
 package com.argsment.anywhere.ui.navigation
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Link
@@ -10,8 +20,7 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -19,7 +28,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
@@ -128,31 +144,61 @@ fun AppNavigation(viewModel: VpnViewModel) {
             val navBackStackEntry by navController.currentBackStackEntryAsState()
             val currentDestination = navBackStackEntry?.destination
 
-            NavigationBar {
-                topLevelRoutes.forEach { topLevelRoute ->
-                    val selected = currentDestination?.hierarchy?.any {
-                        it.hasRoute(topLevelRoute.route::class)
-                    } == true
-
-                    NavigationBarItem(
-                        icon = {
+            // Mock-up `.tabbar`: a floating capsule, 54 tall, radius 27, 75 per tab, icons
+            // only (white when selected, 55 % otherwise). On Home it is white 14 % over the
+            // gradient; elsewhere the theme's surface, so it stays visible on light screens.
+            val onHome = currentDestination?.hasRoute(HomeRoute::class) == true
+            val capsuleColor = if (onHome) Color.White.copy(alpha = 0.14f) else MaterialTheme.colorScheme.surfaceContainerHigh
+            val selectedTint = if (onHome) Color.White else MaterialTheme.colorScheme.onSurface
+            val idleTint = selectedTint.copy(alpha = 0.55f)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(top = 8.dp, bottom = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    modifier = Modifier
+                        .height(54.dp)
+                        .width(75.dp * topLevelRoutes.size)
+                        .clip(RoundedCornerShape(27.dp))
+                        .background(capsuleColor),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    topLevelRoutes.forEach { topLevelRoute ->
+                        val selected = currentDestination?.hierarchy?.any {
+                            it.hasRoute(topLevelRoute.route::class)
+                        } == true
+                        val title = stringResource(topLevelRoute.titleResId)
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .selectable(
+                                    selected = selected,
+                                    role = Role.Tab,
+                                    onClick = {
+                                        navController.navigate(topLevelRoute.route) {
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
+                                            launchSingleTop = true
+                                            restoreState = true
+                                        }
+                                    },
+                                )
+                                .semantics { contentDescription = title },
+                        ) {
                             Icon(
                                 imageVector = if (selected) topLevelRoute.selectedIcon else topLevelRoute.unselectedIcon,
-                                contentDescription = stringResource(topLevelRoute.titleResId)
+                                contentDescription = null,
+                                tint = if (selected) selectedTint else idleTint,
+                                modifier = Modifier.size(24.dp),
                             )
-                        },
-                        label = { Text(stringResource(topLevelRoute.titleResId)) },
-                        selected = selected,
-                        onClick = {
-                            navController.navigate(topLevelRoute.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
                         }
-                    )
+                    }
                 }
             }
         }

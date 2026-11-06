@@ -20,4 +20,5 @@
 
     <string name="settings_section_app">Приложение</string>
     <string name="pro_mode">Режим Pro</string>
+    <string name="home_status_disconnected">Не подключено</string>
 </resources>

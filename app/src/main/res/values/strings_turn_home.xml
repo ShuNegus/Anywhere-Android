@@ -25,4 +25,5 @@
     <!-- Settings -->
     <string name="settings_section_app">App</string>
     <string name="pro_mode">Pro Mode</string>
+    <string name="home_status_disconnected">Not Connected</string>
 </resources>

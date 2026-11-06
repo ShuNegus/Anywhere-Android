@@ -27,7 +27,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
@@ -47,7 +46,9 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import com.argsment.anywhere.R
 
-private val CircleDiameter = 140.dp
+/** Mock-up `.power`: 112, white 14 % connected / 8 % not, an 8 dp halo of white 5 %. */
+private val CircleDiameter = 112.dp
+private val HaloWidth = 8.dp
 private val RingColor = Color.Cyan
 
 /**
@@ -89,10 +90,10 @@ fun PowerButton(
         animationSpec = tween(200),
         label = "forcedRing",
     )
-    val glow by animateFloatAsState(
-        targetValue = if (isConnected) 1f else 0f,
+    val fillAlpha by animateFloatAsState(
+        targetValue = if (isConnected) 0.14f else 0.08f,
         animationSpec = tween(600),
-        label = "glow",
+        label = "fill",
     )
 
     val forceTurnHint = stringResource(R.string.home_power_force_turn_hint)
@@ -102,7 +103,7 @@ fun PowerButton(
     Box(
         contentAlignment = Alignment.Center,
         modifier = modifier
-            .size(CircleDiameter + 20.dp)
+            .size(CircleDiameter + HaloWidth * 2)
             .semantics(mergeDescendants = true) {
                 role = Role.Button
                 stateDescription = "$statusDescription. $forceTurnHint"
@@ -120,18 +121,19 @@ fun PowerButton(
                 )
             }
     ) {
+        // The halo (`box-shadow: 0 0 0 8px rgba(255,255,255,.05)`).
+        Box(
+            modifier = Modifier
+                .size(CircleDiameter + HaloWidth * 2)
+                .clip(CircleShape)
+                .background(Color.White.copy(alpha = 0.05f))
+        )
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
                 .size(CircleDiameter)
-                .shadow(
-                    elevation = (8 + 16 * glow).dp,
-                    shape = CircleShape,
-                    ambientColor = if (isConnected) Color.Cyan.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.08f),
-                    spotColor = if (isConnected) Color.Cyan.copy(alpha = 0.4f) else Color.Black.copy(alpha = 0.08f),
-                )
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.2f))
+                .background(Color.White.copy(alpha = fillAlpha))
                 .pointerInput(Unit) {
                     awaitEachGesture {
                         awaitFirstDown()
@@ -170,14 +172,14 @@ fun PowerButton(
                 Icon(
                     imageVector = Icons.Filled.PowerSettingsNew,
                     contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(48.dp),
+                    tint = if (isConnected) Color.White else Color.White.copy(alpha = 0.75f),
+                    modifier = Modifier.size(44.dp),
                 )
             }
         }
 
-        // Hold ring: diameter + 10, stroke 3, starting at the top.
-        Canvas(modifier = Modifier.size(CircleDiameter + 10.dp)) {
+        // Hold ring: on the halo's outer edge, stroke 3, starting at the top.
+        Canvas(modifier = Modifier.size(CircleDiameter + HaloWidth * 2)) {
             val stroke = 3.dp.toPx()
             val inset = stroke / 2
             val arcSize = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)

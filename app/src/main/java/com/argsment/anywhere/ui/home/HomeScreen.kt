@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
@@ -26,7 +27,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -76,7 +76,8 @@ import com.argsment.anywhere.viewmodel.VpnStatus
 import com.argsment.anywhere.viewmodel.VpnViewModel
 import java.util.UUID
 
-private val HorizontalPadding = 20.dp
+/** Mock-up `.phone`: 16 on the sides. */
+private val HorizontalPadding = 16.dp
 private val MaxControlPaneWidth = 500.dp
 /** Clears the last row from under the scrim (112 tall) when scrolled to the end. */
 private val ScrollBottomInset = 96.dp
@@ -202,11 +203,13 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
                     ) {
                         TopBar(onAdd = { addSheetPrefill = null; showingAddSheet = true })
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        // Mock-up rhythm: power 4 below the top bar, status 10 below the
+                        // power, stages 10 below the status, servers 18 below the stages.
+                        Spacer(modifier = Modifier.height(4.dp))
 
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
                             modifier = Modifier.alpha(if (hasConfigurations) 1f else 0.4f),
                         ) {
                             PowerButton(
@@ -221,7 +224,7 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
                                 // A failed stage keeps its node red; the label goes back to
                                 // the raw tunnel status so it does not claim "Connecting" forever.
                                 text = stringResource(
-                                    if (stage.isFailed) rawStatusText(vpnStatus) else stage.statusTextRes
+                                    homeStatusText(if (stage.isFailed) rawStatusText(vpnStatus) else stage.statusTextRes)
                                 ),
                                 isConnected = isConnected,
                                 warning = stage.isDegraded,
@@ -229,7 +232,7 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(28.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         // Without a subscription there is nowhere to connect, so no graph either.
                         if (hasConfigurations) {
@@ -242,7 +245,7 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
                                 onShowCaptcha = { TurnCaptchaMonitor.requestShow() },
                                 serverName = viewModel.selectedServerName?.let { ServerListModel.splitFlag(it).second },
                             )
-                            Spacer(modifier = Modifier.height(24.dp))
+                            Spacer(modifier = Modifier.height(18.dp))
                         }
 
                         // Repositories load synchronously at start-up, so there is no
@@ -422,6 +425,10 @@ private fun select(viewModel: VpnViewModel, id: UUID) {
     viewModel.configRepository.get(id)?.let { viewModel.setSelectedConfiguration(it) }
 }
 
+/** "Disconnected" reads "Not Connected" on Home, as in the mock-up; the rest as is. */
+private fun homeStatusText(res: Int): Int =
+    if (res == R.string.disconnected) R.string.home_status_disconnected else res
+
 private fun rawStatusText(status: VpnStatus): Int = when (status) {
     VpnStatus.DISCONNECTED -> R.string.disconnected
     VpnStatus.CONNECTING -> R.string.connecting
@@ -431,8 +438,9 @@ private fun rawStatusText(status: VpnStatus): Int = when (status) {
 }
 
 /**
- * 44 dp: the "+" on the left (adding a subscription lives up here because the list it
- * would otherwise hang off does not exist yet), the right slot reserved.
+ * Mock-up `.topbar`: a 32 dp row with the "+" on the right (adding a subscription lives
+ * up here because the list it would otherwise hang off does not exist yet). The tap area
+ * stays 44 dp and overflows the row.
  */
 @Composable
 private fun TopBar(onAdd: () -> Unit) {
@@ -440,14 +448,15 @@ private fun TopBar(onAdd: () -> Unit) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(44.dp),
+            .height(32.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Spacer(modifier = Modifier.weight(1f))
         Box(
             contentAlignment = Alignment.Center,
             modifier = Modifier
-                .offset(x = (-6).dp) // the circle's visual edge lines up with the cards'
-                .size(44.dp)
+                .offset(x = 6.dp) // the circle's visual edge lines up with the cards'
+                .requiredSize(44.dp)
                 .clickable(role = Role.Button, onClick = onAdd)
                 .semantics { contentDescription = addLabel },
         ) {
@@ -462,23 +471,24 @@ private fun TopBar(onAdd: () -> Unit) {
                     imageVector = Icons.Filled.Add,
                     contentDescription = null,
                     tint = Color.White.copy(alpha = 0.85f),
-                    modifier = Modifier.size(20.dp),
+                    modifier = Modifier.size(17.dp),
                 )
             }
         }
-        Spacer(modifier = Modifier.weight(1f))
-        Spacer(modifier = Modifier.size(44.dp))
     }
 }
 
-/** Tapping the status (only while connected) opens the statistics sheet. */
+/**
+ * Mock-up `.status`: 17 sp semibold white, a regular "›" at 55 % while connected (it opens
+ * the statistics sheet); red (#FF8A80, "›" at 80 %) when connected without the backup
+ * route it needed.
+ */
 @Composable
 private fun StatusLabel(text: String, isConnected: Boolean, warning: Boolean = false, onClick: () -> Unit) {
-    // Red when connected without the backup route it needed.
-    val color = if (warning) BypassWarningTextColor else Color.White.copy(alpha = 0.6f)
+    val color = if (warning) BypassWarningTextColor else Color.White
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable(
@@ -488,15 +498,15 @@ private fun StatusLabel(text: String, isConnected: Boolean, warning: Boolean = f
                 indication = null,
                 onClick = onClick,
             )
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 8.dp),
     ) {
         Text(text = text, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = color)
         if (isConnected) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                contentDescription = null,
-                tint = color,
-                modifier = Modifier.size(16.dp),
+            Text(
+                text = "›",
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Normal,
+                color = color.copy(alpha = if (warning) 0.8f else 0.55f),
             )
         }
     }

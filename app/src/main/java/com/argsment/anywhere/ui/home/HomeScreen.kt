@@ -277,13 +277,14 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
                     }
                 }
 
-                // Fades the rows out above the tab bar instead of cutting them off.
+                // Fades the rows out above the tab bar instead of cutting them off. Pinned
+                // to the screen's bottom edge and stretched by the bottom inset, so the
+                // fade keeps its top and runs down under the tab bar.
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = contentPadding.calculateBottomPadding())
                         .fillMaxWidth()
-                        .height(ScrimHeight)
+                        .height(ScrimHeight + contentPadding.calculateBottomPadding())
                         .background(
                             Brush.verticalGradient(
                                 0f to backgroundEnd.copy(alpha = 0f),

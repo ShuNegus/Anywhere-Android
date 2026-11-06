@@ -25,8 +25,8 @@ android {
         applicationId = "app.anywhere.client"
         minSdk = 26
         targetSdk = 36
-        versionCode = 24
-        versionName = "1.12"
+        versionCode = 25
+        versionName = "1.13"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

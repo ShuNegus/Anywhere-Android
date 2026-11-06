@@ -108,6 +108,8 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
     val startError by viewModel.startError.collectAsState()
     val proModeEnabled by viewModel.proModeEnabled.collectAsState()
     val pendingDeepLink by viewModel.pendingDeepLinkUrl.collectAsState()
+    val bypassStates by viewModel.subscriptionBypassStates.collectAsState()
+    val turnMetadata by viewModel.turnMetadataStore.bySubscription.collectAsState()
 
     val isConnected = vpnStatus == VpnStatus.CONNECTED
     val isTransitioning = vpnStatus == VpnStatus.CONNECTING ||
@@ -160,6 +162,9 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
         ServerListModel.mergedLatencies(latencyResults, chainLatencyResults)
     }
     val isMeasuring = ServerListModel.isMeasuring(latencyResults, chainLatencyResults)
+    val bypassServerIds = remember(configurations, turnMetadata) {
+        ServerListModel.bypassServerIds(configurations, turnMetadata)
+    }
 
     val backgroundStart by animateColorAsState(
         if (isConnected) HomeConnectedBackgroundStart else HomeDisconnectedBackgroundStart,
@@ -219,6 +224,7 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
                                     if (stage.isFailed) rawStatusText(vpnStatus) else stage.statusTextRes
                                 ),
                                 isConnected = isConnected,
+                                warning = stage.isDegraded,
                                 onClick = { showingStatsSheet = true },
                             )
                         }
@@ -234,6 +240,7 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
                                 onExpandedChange = viewModel::setConnectionGraphExpanded,
                                 captchaWaiting = captchaWaiting,
                                 onShowCaptcha = { TurnCaptchaMonitor.requestShow() },
+                                serverName = viewModel.selectedServerName?.let { ServerListModel.splitFlag(it).second },
                             )
                             Spacer(modifier = Modifier.height(24.dp))
                         }
@@ -273,6 +280,9 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
                                 }
                             },
                             refreshingSubscription = refreshingSubscription,
+                            bypassStates = bypassStates,
+                            bypassMode = if (viewModel.turnSettings.featureEnabled) viewModel.turnSettings.turnMode else null,
+                            bypassServerIds = bypassServerIds,
                         )
                     }
                 }
@@ -463,8 +473,9 @@ private fun TopBar(onAdd: () -> Unit) {
 
 /** Tapping the status (only while connected) opens the statistics sheet. */
 @Composable
-private fun StatusLabel(text: String, isConnected: Boolean, onClick: () -> Unit) {
-    val color = Color.White.copy(alpha = 0.6f)
+private fun StatusLabel(text: String, isConnected: Boolean, warning: Boolean = false, onClick: () -> Unit) {
+    // Red when connected without the backup route it needed.
+    val color = if (warning) BypassWarningTextColor else Color.White.copy(alpha = 0.6f)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),

@@ -9,14 +9,14 @@
     <string name="graph_node_network_check">Проверка сети</string>
     <string name="graph_node_vpn_connect">Подключение к VPN</string>
     <string name="graph_node_whitelist_check">Проверка белых списков</string>
-    <string name="graph_node_turn_tunnel">Открытие TURN-туннеля</string>
+    <string name="graph_node_turn_tunnel">Открытие резервного пути</string>
     <string name="graph_node_captcha">Решение капчи</string>
     <string name="graph_node_connected">Подключено</string>
     <string name="graph_node_connected_adding_peers">Подключено · пиры %1$d/%2$d</string>
     <string name="graph_node_connected_captcha_for_peers">Подключено · капча для новых пиров</string>
 
     <string name="graph_collapsed_idle">Этапы подключения</string>
-    <string name="graph_collapsed_via_turn">Подключено через обход</string>
+    <string name="graph_collapsed_via_turn">Подключено через резервный путь</string>
     <string name="graph_collapsed_direct">Подключено напрямую</string>
     <string name="graph_collapsed_failed">Ошибка: %1$s</string>
 

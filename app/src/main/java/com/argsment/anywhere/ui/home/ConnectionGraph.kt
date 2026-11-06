@@ -68,6 +68,8 @@ import com.argsment.anywhere.vpn.turn.TurnPoolSummary
 internal val GraphReachedColor = Color(0xFF30D158)
 /** The node the connection stalled on (iOS dark-scheme `.red`). */
 internal val GraphFailedColor = Color(0xFFFF453A)
+/** Red text on the blue/grey home gradient (lighter than systemRed for contrast). */
+internal val BypassWarningTextColor = Color(0xFFFF8A80)
 private val IdleEdgeColor = Color.White.copy(alpha = 0.14f)
 private const val STAGE_ANIMATION_MS = 350
 
@@ -114,6 +116,8 @@ private fun dotStyle(state: ConnectionNodeState): DotStyle = when (state) {
     ConnectionNodeState.CURRENT -> DotStyle(GraphReachedColor, Color.Transparent, GraphReachedColor.copy(alpha = 0.75f))
     // A glow without a pulse: failure is final, there is nothing to blink about.
     ConnectionNodeState.FAILED -> DotStyle(GraphFailedColor, Color.Transparent, GraphFailedColor.copy(alpha = 0.65f))
+    // Connected the wrong way (directly although the backup route was needed): empty, white.
+    ConnectionNodeState.HOLLOW -> DotStyle(Color.Transparent, Color.White.copy(alpha = 0.45f), Color.Transparent)
 }
 
 /** Animated per-node dot colours and per-edge colours, in [ConnectionGraphNode.entries] / [GraphEdges] order. */
@@ -257,7 +261,7 @@ fun ConnectionGraphView(
             val labelColor by animateColorAsState(
                 when (state) {
                     ConnectionNodeState.OFF, ConnectionNodeState.SKIPPED -> Color.White.copy(alpha = 0.45f)
-                    ConnectionNodeState.DONE -> Color.White.copy(alpha = 0.68f)
+                    ConnectionNodeState.DONE, ConnectionNodeState.HOLLOW -> Color.White.copy(alpha = 0.68f)
                     ConnectionNodeState.CURRENT, ConnectionNodeState.FAILED -> Color.White
                 },
                 tween(STAGE_ANIMATION_MS),
@@ -269,18 +273,33 @@ fun ConnectionGraphView(
                     indication = null,
                 ) { onNodeClick(node) }
             } else Modifier
+            val caption = stage.nodeCaption(node)
             Text(
-                text = node.title(pool).text(context),
+                text = stage.nodeTitleOverride(node)?.let { context.getString(it) } ?: node.title(pool).text(context),
                 fontSize = 13.sp,
                 lineHeight = 16.sp,
                 fontWeight = if (emphasised) FontWeight.SemiBold else FontWeight.Normal,
-                color = labelColor,
+                color = if (state == ConnectionNodeState.FAILED && caption != null) BypassWarningTextColor else labelColor,
                 maxLines = 1,
                 softWrap = false,
                 modifier = Modifier
-                    .offset(x = Expanded.labelX, y = Expanded.centerY(node) - 8.dp)
+                    .offset(x = Expanded.labelX, y = Expanded.centerY(node) - (if (caption != null) 12 else 8).dp)
                     .then(rowModifier),
             )
+            if (caption != null) {
+                Text(
+                    text = context.getString(caption),
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    color = Color.White.copy(alpha = 0.55f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    // Padding, not an x offset: the line must ellipsize at the card's edge.
+                    modifier = Modifier
+                        .padding(start = Expanded.labelX, end = 8.dp)
+                        .offset(y = Expanded.centerY(node) + 3.dp),
+                )
+            }
         }
     }
 }
@@ -301,8 +320,13 @@ private object Mini {
 
 /** The collapsed graph's text (spec §11.4). */
 @Composable
-private fun collapsedSummary(stage: ConnectionStage, pool: TurnPoolSummary?): String =
-    stage.collapsedText(LocalContext.current, pool)
+private fun collapsedSummary(stage: ConnectionStage, pool: TurnPoolSummary?, serverName: String? = null): String =
+    stage.collapsedText(LocalContext.current, pool, serverName)
+
+/** Red for a backup-route failure; white for "this server has none". */
+private fun collapsedColor(stage: ConnectionStage): Color =
+    if (stage is ConnectionStage.ConnectedWithoutBypass && stage.reason.isError) BypassWarningTextColor
+    else Color.White.copy(alpha = 0.68f)
 
 /** One 44 dp row: the mini graph, the stage text and a chevron. */
 @Composable
@@ -310,10 +334,11 @@ fun ConnectionGraphCollapsedView(
     stage: ConnectionStage,
     pool: TurnPoolSummary?,
     modifier: Modifier = Modifier,
+    serverName: String? = null,
 ) {
     val colors = animatedGraphColors(stage)
     val pulse by pulsePhase(reduceMotion())
-    val summary = collapsedSummary(stage, pool)
+    val summary = collapsedSummary(stage, pool, serverName)
 
     Row(
         modifier = modifier
@@ -356,7 +381,7 @@ fun ConnectionGraphCollapsedView(
         Text(
             text = summary,
             fontSize = 13.sp,
-            color = Color.White.copy(alpha = 0.68f),
+            color = collapsedColor(stage),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
@@ -390,10 +415,11 @@ fun ConnectionGraphSection(
     captchaWaiting: Boolean,
     onShowCaptcha: () -> Unit,
     modifier: Modifier = Modifier,
+    serverName: String? = null,
 ) {
     val expandHint = stringResource(R.string.graph_a11y_expand_hint)
     val collapseHint = stringResource(R.string.graph_a11y_collapse_hint)
-    val summary = if (expanded) accessibilitySummary(stage, pool) else collapsedSummary(stage, pool)
+    val summary = if (expanded) accessibilitySummary(stage, pool) else collapsedSummary(stage, pool, serverName)
 
     Box(
         modifier = modifier
@@ -437,7 +463,7 @@ fun ConnectionGraphSection(
                 )
             }
         } else {
-            ConnectionGraphCollapsedView(stage = stage, pool = pool)
+            ConnectionGraphCollapsedView(stage = stage, pool = pool, serverName = serverName)
         }
     }
 }

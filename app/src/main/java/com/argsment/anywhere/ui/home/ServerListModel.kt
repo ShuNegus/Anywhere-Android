@@ -1,5 +1,6 @@
 package com.argsment.anywhere.ui.home
 
+import com.argsment.anywhere.turn.TurnMetadata
 import com.argsment.anywhere.data.model.ProxyChain
 import com.argsment.anywhere.data.model.ProxyConfiguration
 import com.argsment.anywhere.data.model.Subscription
@@ -82,6 +83,23 @@ object ServerListModel {
     }
 
     /** A selected chain resolves into a configuration with a new id; the row matches the chain's id. */
+    /**
+     * Configurations that have a backup-route relay, but only in subscriptions where not
+     * every server has one — where every server has it (or none does) a mark would say nothing.
+     */
+    fun bypassServerIds(
+        configurations: List<ProxyConfiguration>,
+        metadata: Map<UUID, TurnMetadata>,
+    ): Set<UUID> {
+        val result = HashSet<UUID>()
+        configurations.filter { it.subscriptionId != null }.groupBy { it.subscriptionId!! }.forEach { (subscriptionId, configs) ->
+            val turn = metadata[subscriptionId] ?: return@forEach
+            val covered = configs.filter { turn.server(it.serverAddress)?.isUsable == true }
+            if (covered.isNotEmpty() && covered.size < configs.size) covered.mapTo(result) { it.id }
+        }
+        return result
+    }
+
     fun selectedRowId(selectedChainId: UUID?, selectedConfigId: UUID?): UUID? =
         selectedChainId ?: selectedConfigId
 

@@ -55,6 +55,8 @@ class TurnDialerRegistry internal constructor(
     fun isActive(): Boolean {
         val settings = settingsProvider() ?: return false
         if (!settings.turnActiveForSession || effectiveVKLink().isEmpty()) return false
+        // The backup route already failed this session: dial directly.
+        if (settings.turnSuppressed) return false
         return when (settings.effectiveTurnMode) {
             TurnMode.OFF -> false
             TurnMode.ON -> true

@@ -124,7 +124,7 @@ fun AddProxyScreen(
                     total = result.total,
                     expire = result.expire
                 )
-                AppRepositories.sync(context).recordRefresh(subscription.id, result.push)
+                AppRepositories.sync(context).recordRefresh(subscription.id, result.push, result.turnOutcome)
                 onSubscriptionImport(result.configurations, subscription, result.turn)
             } catch (e: Exception) {
                 linkErrorMessage = e.message ?: context.getString(R.string.import_failed)

@@ -60,6 +60,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.argsment.anywhere.R
 import com.argsment.anywhere.data.network.LatencyResult
+import com.argsment.anywhere.turn.SubscriptionBypassState
+import com.argsment.anywhere.turn.TurnMode
 import java.util.UUID
 
 /*
@@ -93,6 +95,15 @@ fun ServerListSection(
     onRefreshSubscription: (UUID) -> Unit = {},
     /** The subscription being refreshed: it shows a spinner, the others are disabled. */
     refreshingSubscription: UUID? = null,
+    /** Backup-route mark per subscription; a missing entry draws nothing. */
+    bypassStates: Map<UUID, SubscriptionBypassState> = emptyMap(),
+    /** The stored TURN mode, for the mark's popover. */
+    bypassMode: TurnMode? = null,
+    /**
+     * Servers that have a backup route, marked in subscriptions where not every server
+     * has one (so the user can pick one that does).
+     */
+    bypassServerIds: Set<UUID> = emptySet(),
 ) {
     if (sections.isEmpty()) {
         ServerListEmptyState(onAddSubscription = onAddSubscription, modifier = modifier)
@@ -124,6 +135,8 @@ fun ServerListSection(
                         isRefreshing = refreshingSubscription == subscriptionId,
                         refreshEnabled = refreshingSubscription == null,
                         onRefresh = { onRefreshSubscription(subscriptionId) },
+                        bypassState = bypassStates[subscriptionId],
+                        bypassMode = bypassMode,
                         modifier = headerModifier,
                     )
                 } else {
@@ -131,7 +144,7 @@ fun ServerListSection(
                     SectionTitle(header, modifier = headerModifier.height(32.dp))
                 }
             }
-            SectionCard(section, selectedId, latencies, onSelect)
+            SectionCard(section, selectedId, latencies, onSelect, bypassServerIds)
         }
     }
 }
@@ -216,6 +229,8 @@ private fun SwipeableSubscriptionHeader(
     isRefreshing: Boolean,
     refreshEnabled: Boolean,
     onRefresh: () -> Unit,
+    bypassState: SubscriptionBypassState?,
+    bypassMode: TurnMode?,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -282,17 +297,28 @@ private fun SwipeableSubscriptionHeader(
                 .offset(x = offset.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = title,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White.copy(alpha = 0.85f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .padding(start = 12.dp)
-                    .weight(1f),
-            )
+            // The name takes what it needs; the backup-route mark follows it directly.
+            Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White.copy(alpha = 0.85f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .padding(start = 12.dp)
+                        .weight(1f, fill = false),
+                )
+                // 12 dp mark centred in a 32 dp target: (32 − 12) / 2 − 4 = a 6 dp gap.
+                if (bypassState != null) {
+                    SubscriptionBypassIcon(
+                        state = bypassState,
+                        mode = bypassMode,
+                        modifier = Modifier.offset(x = (-4).dp),
+                    )
+                }
+            }
             Spacer(modifier = Modifier.width(8.dp))
             // While the row is slid away its own trash hides — two trashes in a row otherwise.
             val showsTrash = offset > -4f
@@ -346,6 +372,7 @@ private fun SectionCard(
     selectedId: UUID?,
     latencies: Map<UUID, LatencyResult>,
     onSelect: (UUID) -> Unit,
+    bypassServerIds: Set<UUID>,
 ) {
     Column(
         modifier = Modifier
@@ -363,7 +390,7 @@ private fun SectionCard(
                         .background(Color.White.copy(alpha = 0.08f)),
                 )
             }
-            ServerRow(item, item.id == selectedId, latencies[item.id], onSelect)
+            ServerRow(item, item.id == selectedId, latencies[item.id], onSelect, item.id in bypassServerIds)
         }
     }
 }
@@ -374,6 +401,7 @@ private fun ServerRow(
     isSelected: Boolean,
     latency: LatencyResult?,
     onSelect: (UUID) -> Unit,
+    hasBypass: Boolean = false,
 ) {
     // The flag is an emoji prefix of the name ("🇺🇸 Los Angeles"); the model has no field for it.
     val (flag, name) = remember(item.name) { ServerListModel.splitFlag(item.name) }
@@ -394,15 +422,24 @@ private fun ServerRow(
             textAlign = TextAlign.Center,
             modifier = Modifier.width(FlagWidth),
         )
-        Text(
-            text = name,
-            fontSize = 17.sp,
-            fontWeight = FontWeight.Medium,
-            color = Color.White,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = name,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            if (hasBypass) {
+                BypassMark(
+                    glyph = BypassGlyph.AVAILABLE,
+                    size = 10.dp,
+                    modifier = Modifier.padding(start = 6.dp).alpha(0.55f),
+                )
+            }
+        }
         PingCell(latency)
         Box(modifier = Modifier.width(TickWidth), contentAlignment = Alignment.Center) {
             if (isSelected) {

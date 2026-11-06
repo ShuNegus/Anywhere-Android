@@ -3,6 +3,7 @@ package com.argsment.anywhere.viewmodel
 import android.content.Context
 import androidx.annotation.StringRes
 import com.argsment.anywhere.R
+import com.argsment.anywhere.turn.BypassReason
 import com.argsment.anywhere.turn.TurnMode
 import com.argsment.anywhere.vpn.turn.TurnAutoDecision
 import com.argsment.anywhere.vpn.turn.TurnPhase
@@ -66,6 +67,8 @@ enum class ConnectionNodeState {
     /** The route went through the node, but the step was not needed (captcha). */
     SKIPPED,
     FAILED,
+    /** Reached the wrong way: connected directly although the backup route was needed. */
+    HOLLOW,
 }
 
 /**
@@ -101,9 +104,18 @@ sealed class ConnectionStage {
     data class ConnectedViaTurn(val captchaSolved: Boolean) : ConnectionStage()
     /** No bypass needed. */
     data object ConnectedDirect : ConnectionStage()
+    /**
+     * The backup route was needed but could not be used ([reason]): the tunnel runs
+     * directly, and blocked sites may not open.
+     */
+    data class ConnectedWithoutBypass(val reason: BypassReason) : ConnectionStage()
     data class Failed(val failure: ConnectionFailure) : ConnectionStage()
 
-    val isConnected: Boolean get() = this is ConnectedViaTurn || this == ConnectedDirect
+    val isConnected: Boolean
+        get() = this is ConnectedViaTurn || this == ConnectedDirect || this is ConnectedWithoutBypass
+
+    /** Connected, but the status must warn (red). */
+    val isDegraded: Boolean get() = this is ConnectedWithoutBypass
     val isFailed: Boolean get() = this is Failed
 
     /** A transition is running — the power button shows progress. */
@@ -125,19 +137,25 @@ sealed class ConnectionStage {
             WhitelistCheck -> ConnectionGraphNode.WHITELIST_CHECK
             TurnTunnel -> ConnectionGraphNode.TURN_TUNNEL
             Captcha -> ConnectionGraphNode.CAPTCHA
-            is ConnectedViaTurn, ConnectedDirect -> ConnectionGraphNode.CONNECTED
+            is ConnectedViaTurn, ConnectedDirect, is ConnectedWithoutBypass -> ConnectionGraphNode.CONNECTED
             is Failed -> failure.node
         }
 
     /** Green: current or already passed. A direct connection jumps over the bypass branch. */
     fun isReached(node: ConnectionGraphNode): Boolean {
         if (this == ConnectedDirect) return !node.isOnBypassBranch
+        if (this is ConnectedWithoutBypass) {
+            // Up to the restrictions check; the tunnel step too when only the captcha failed.
+            return node.order <= ConnectionGraphNode.WHITELIST_CHECK.order ||
+                (node == ConnectionGraphNode.TURN_TUNNEL && reason == BypassReason.CAPTCHA_FAILED)
+        }
         val current = currentNode ?: return false
         return node.order <= current.order
     }
 
     fun state(of: ConnectionGraphNode): ConnectionNodeState {
         if (this is Failed && of == failure.node) return ConnectionNodeState.FAILED
+        if (this is ConnectedWithoutBypass) return withoutBypassState(of, reason)
         if (this is ConnectedViaTurn && of == ConnectionGraphNode.CAPTCHA && !captchaSolved) {
             return ConnectionNodeState.SKIPPED
         }
@@ -160,13 +178,24 @@ sealed class ConnectionStage {
     @get:StringRes
     val statusTextRes: Int
         get() = when {
+            this is ConnectedWithoutBypass -> R.string.connected_without_bypass
             isConnected -> R.string.connected
             isBusy -> R.string.connecting
             else -> R.string.disconnected
         }
 
-    /** The collapsed graph row's text (spec §11.4). */
-    fun collapsedText(context: Context, pool: TurnPoolSummary?): String = when (this) {
+    /**
+     * The collapsed graph row's text (spec §11.4).
+     *
+     * @param serverName the selected server, named when it has no backup route.
+     */
+    fun collapsedText(context: Context, pool: TurnPoolSummary?, serverName: String? = null): String = when (this) {
+        is ConnectedWithoutBypass ->
+            if (reason == BypassReason.SERVER_NOT_COVERED && !serverName.isNullOrBlank()) {
+                context.getString(R.string.bypass_reason_server_not_covered_named, serverName)
+            } else {
+                context.getString(reason.collapsedRes)
+            }
         Idle -> context.getString(R.string.graph_collapsed_idle)
         is ConnectedViaTurn -> {
             val title = ConnectionGraphNode.CONNECTED.title(pool)
@@ -177,7 +206,43 @@ sealed class ConnectionStage {
         else -> currentNode?.title(context).orEmpty()
     }
 
+    /**
+     * The graph label of [node] for this stage, or `null` for the node's usual title.
+     * Only the "connected without the backup route" stage renames a node.
+     */
+    @StringRes
+    fun nodeTitleOverride(node: ConnectionGraphNode): Int? =
+        if (this is ConnectedWithoutBypass && node == ConnectionGraphNode.CONNECTED) R.string.graph_node_connected_direct else null
+
+    /** The second, smaller line under [node]'s label, or `null`. */
+    @StringRes
+    fun nodeCaption(node: ConnectionGraphNode): Int? {
+        if (this !is ConnectedWithoutBypass) return null
+        return when (node) {
+            ConnectionGraphNode.WHITELIST_CHECK -> R.string.bypass_node_needed
+            ConnectionGraphNode.TURN_TUNNEL -> if (reason == BypassReason.CAPTCHA_FAILED) null else reason.nodeCaptionRes
+            ConnectionGraphNode.CAPTCHA -> if (reason == BypassReason.CAPTCHA_FAILED) reason.nodeCaptionRes else null
+            ConnectionGraphNode.CONNECTED -> R.string.bypass_node_sites_may_fail
+            else -> null
+        }
+    }
+
     companion object {
+
+        /** Node states for [ConnectedWithoutBypass]. */
+        internal fun withoutBypassState(node: ConnectionGraphNode, reason: BypassReason): ConnectionNodeState = when (node) {
+            ConnectionGraphNode.NETWORK_CHECK, ConnectionGraphNode.VPN_CONNECT -> ConnectionNodeState.DONE
+            // The probe found the network restricted: the backup route was needed.
+            ConnectionGraphNode.WHITELIST_CHECK -> ConnectionNodeState.FAILED
+            ConnectionGraphNode.TURN_TUNNEL -> when (reason) {
+                BypassReason.SERVER_NOT_COVERED -> ConnectionNodeState.HOLLOW
+                BypassReason.CAPTCHA_FAILED -> ConnectionNodeState.DONE
+                else -> ConnectionNodeState.FAILED
+            }
+            ConnectionGraphNode.CAPTCHA ->
+                if (reason == BypassReason.CAPTCHA_FAILED) ConnectionNodeState.FAILED else ConnectionNodeState.OFF
+            ConnectionGraphNode.CONNECTED -> ConnectionNodeState.HOLLOW
+        }
 
         /** The route is the setting's; in auto, the probe's. `turnMode == null`: feature off. */
         fun route(turnMode: TurnMode?, autoDecision: TurnAutoDecision?): ConnectionRoute = when (turnMode) {
@@ -211,6 +276,7 @@ sealed class ConnectionStage {
             captchaPending: Boolean,
             captchaSeen: Boolean,
             failure: ConnectionFailure?,
+            bypassIssue: BypassReason? = null,
         ): ConnectionStage {
             // A failure outlives the status that caused it.
             if (failure != null) return Failed(failure)
@@ -228,6 +294,9 @@ sealed class ConnectionStage {
                 VpnStatus.CONNECTING, VpnStatus.REASSERTING -> return VpnConnect
                 VpnStatus.CONNECTED -> Unit
             }
+
+            // The backup route was needed and cannot be used: connected directly.
+            if (bypassIssue != null) return ConnectedWithoutBypass(bypassIssue)
 
             return when (route(turnMode, autoDecision)) {
                 ConnectionRoute.DIRECT -> ConnectedDirect

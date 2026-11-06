@@ -21,6 +21,9 @@ import com.argsment.anywhere.data.network.SubscriptionFetcher
 import com.argsment.anywhere.data.repository.CertificateRepository
 import com.argsment.anywhere.data.repository.ChainRepository
 import com.argsment.anywhere.data.repository.RuleSetRepository
+import com.argsment.anywhere.turn.BypassReason
+import com.argsment.anywhere.turn.BypassStatus
+import com.argsment.anywhere.turn.SubscriptionBypassState
 import com.argsment.anywhere.turn.TurnCaptchaMonitor
 import com.argsment.anywhere.turn.TurnEnvironment
 import com.argsment.anywhere.turn.TurnMetadata
@@ -32,6 +35,7 @@ import com.argsment.anywhere.vpn.turn.ConnectivityProbe
 import com.argsment.anywhere.vpn.turn.ConnectivityVerdict
 import com.argsment.anywhere.vpn.turn.ProbeProfile
 import com.argsment.anywhere.vpn.turn.TurnAutoDecision
+import com.argsment.anywhere.vpn.turn.TurnDialerRegistry
 import com.argsment.anywhere.vpn.turn.TurnPhase
 import com.argsment.anywhere.vpn.turn.TurnPoolSummary
 import com.argsment.anywhere.vpn.turn.TurnRouting
@@ -45,7 +49,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -119,6 +126,39 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
     /** This session was forced through TURN (power button held); mirrors [TurnSettings.turnForced]. */
     val turnForcedInSession: StateFlow<Boolean> = _turnForcedInSession.asStateFlow()
 
+    /**
+     * The backup route failed while connecting (tunnel/captcha deadline): the session fell
+     * back to a direct connection. Cleared by the next connect or disconnect.
+     */
+    private val _runtimeBypassIssue = MutableStateFlow<BypassReason?>(null)
+
+    /** Mode "Off": a probe after connecting found the network restricted. */
+    private val _offModeBlocked = MutableStateFlow(false)
+    private var offModeProbeJob: Job? = null
+
+    /** Bumped when the user's own VK link changes (it can replace a missing one). */
+    private val manualVkLink = MutableStateFlow(turnSettings.vkLink)
+
+    /** The backup-route icon of every subscription, keyed by `Subscription.id`. */
+    val subscriptionBypassStates: StateFlow<Map<UUID, SubscriptionBypassState>> by lazy {
+        combine(
+            turnMetadataStore.bySubscription,
+            AppRepositories.sync(application).flow,
+            subscriptionRepository.subscriptions,
+            manualVkLink,
+        ) { metadata, records, subscriptions, manual ->
+            subscriptions.associate { subscription ->
+                val record = records[subscription.id.toString()]
+                subscription.id to BypassStatus.subscriptionState(
+                    metadata = metadata[subscription.id],
+                    outcome = record?.outcome,
+                    knownOurs = record?.knownOurs ?: false,
+                    manualVkLink = manual,
+                )
+            }
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+    }
+
     private val _connectionStage = MutableStateFlow<ConnectionStage>(ConnectionStage.Idle)
     /** The home graph's stage — the single output of [ConnectionStage.resolve]. */
     val connectionStage: StateFlow<ConnectionStage> = _connectionStage.asStateFlow()
@@ -146,6 +186,8 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
     /** Declared before the init block that registers it; see [syncTurnPhaseWatch]. */
     private val turnSettingsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key in TurnSettings.Keys.PHASE_WATCH_INPUTS) syncTurnPhaseWatch()
+        if (key == TurnSettings.Keys.TURN_VK_LINK) manualVkLink.value = turnSettings.vkLink
+        if (key == TurnSettings.Keys.TURN_MODE || key == TurnSettings.Keys.TURN_VK_LINK) updateConnectionStage()
     }
     /** The tunnel reached CONNECTED in this session: a later DISCONNECTED is a teardown, not a failed start. */
     private var sessionReachedConnected = false
@@ -275,6 +317,12 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
             TurnCaptchaMonitor.captchaWaiting.collect { setCaptchaPending(it) }
         }
 
+        // A refresh can clear (or cause) a backup-route problem while connected: the
+        // status follows it live. New flows pick up a relay that appeared on their own.
+        viewModelScope.launch {
+            subscriptionBypassStates.collect { updateConnectionStage() }
+        }
+
         // Prime CertificatePolicy with the current allowInsecure + trusted-certificate
         // values so TLS validation has a fresh snapshot before the first connection.
         CertificatePolicy.reload(application)
@@ -325,15 +373,11 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
     /**
      * Connects through TURN whatever the TURN mode or the master switch says — the power
      * button held for two seconds (spec §8, iOS `connectForcingTurn()`). Reconnects when
-     * the tunnel is already up. Refuses with an error when the selected server has no
-     * TURN relay or no VK link is known, rather than silently connecting directly.
+     * the tunnel is already up. Without a relay or a VK link for the selected server it
+     * still connects — directly — and the status says why the backup route is missing.
      */
     fun connectForcingTurn() {
-        val configuration = selectedConfiguration ?: return
-        if (!isTurnAvailable(configuration)) {
-            _startError.value = getApplication<Application>().getString(R.string.vpn_error_turn_unavailable)
-            return
-        }
+        selectedConfiguration ?: return
         when (_vpnStatus.value) {
             VpnStatus.CONNECTED, VpnStatus.CONNECTING, VpnStatus.REASSERTING -> {
                 if (turnSettings.turnForced) return // already going through TURN
@@ -372,6 +416,7 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
         turnSettings.turnForced = forceTurn
         _turnForcedInSession.value = forceTurn
         _connectionFailure.value = null
+        clearBypassFallback()
         turnWatchdog.reset()
         _captchaSeenInSession.value = false
         userRequestedDisconnect = false
@@ -480,6 +525,7 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
     fun disconnect() {
         turnSettings.turnForced = false
         _turnForcedInSession.value = false
+        clearBypassFallback()
         pendingReconnect = false
         pendingReconnectForcesTurn = false
         stopTunnel()
@@ -525,9 +571,12 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
                 sessionReachedConnected = true
                 if (_connectionFailure.value == ConnectionFailure.VPN_START_FAILED) _connectionFailure.value = null
                 startTurnPhaseWatch()
+                startOffModeProbe()
             }
             VpnStatus.DISCONNECTED, VpnStatus.DISCONNECTING -> {
                 stopTurnPhaseWatch()
+                offModeProbeJob?.cancel()
+                offModeProbeJob = null
                 if (status == VpnStatus.DISCONNECTED) {
                     // Dropped out of CONNECTING on its own: the tunnel never came up.
                     if (!sessionReachedConnected && !userRequestedDisconnect && previous == VpnStatus.CONNECTING) {
@@ -584,8 +633,97 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
                 _connectionFailure.value = null
             }
         }
-        outcome.failure?.let { noteFailure(it) }
+        val failure = outcome.failure ?: return
+        when (failure) {
+            // The backup route did not come up: fall back to a direct connection.
+            ConnectionFailure.TURN_TIMEOUT, ConnectionFailure.CAPTCHA_TIMEOUT -> {
+                // Already known why it cannot work (no relay, no link…), or already fell back.
+                if (staticBypassIssue() != null || turnSettings.turnSuppressed) return
+                fallBackToDirect(
+                    if (failure == ConnectionFailure.CAPTCHA_TIMEOUT) BypassReason.CAPTCHA_FAILED
+                    else BypassReason.RUNTIME_FAILED
+                )
+            }
+            else -> noteFailure(failure)
+        }
     }
+
+    /**
+     * Runtime fallback: new flows dial directly (the registry refuses dialers while
+     * [TurnSettings.turnSuppressed] is set) and the pools are closed, so flows waiting on
+     * them or riding them fail over and reconnect directly. The tunnel itself stays up.
+     */
+    private fun fallBackToDirect(reason: BypassReason) {
+        logger.info("[TURN] backup route failed ($reason); continuing directly")
+        _runtimeBypassIssue.value = reason
+        turnSettings.turnSuppressed = true
+        viewModelScope.launch(Dispatchers.IO) { TurnDialerRegistry.shared.reset() }
+        updateConnectionStage()
+    }
+
+    private fun clearBypassFallback() {
+        _runtimeBypassIssue.value = null
+        _offModeBlocked.value = false
+        offModeProbeJob?.cancel()
+        offModeProbeJob = null
+        if (turnSettings.turnSuppressed) turnSettings.turnSuppressed = false
+    }
+
+    /**
+     * Mode "Off": nothing probes the network, so the app cannot tell the user the backup
+     * route was needed. One probe after connecting does (the app is excluded from its own
+     * VPN, so it measures the underlying network).
+     */
+    private fun startOffModeProbe() {
+        if (offModeProbeJob != null) return
+        if (!turnSettings.featureEnabled || turnSettings.turnForced || turnSettings.turnMode != TurnMode.OFF) return
+        offModeProbeJob = viewModelScope.launch {
+            val verdict = ConnectivityProbe.classify(getApplication(), ProbeProfile.BACKGROUND)
+            _offModeBlocked.value = verdict == ConnectivityVerdict.BLOCKED
+            updateConnectionStage()
+        }
+    }
+
+    /**
+     * Whether the session needs the backup route: the mode or the probe says the network
+     * is restricted.
+     */
+    private fun bypassNeeded(): Boolean {
+        val mode = graphTurnMode() ?: return false
+        if (mode == TurnMode.OFF) return _offModeBlocked.value
+        return ConnectionStage.route(mode, _turnAutoDecision.value) == ConnectionRoute.TURN
+    }
+
+    /**
+     * Why the selected server cannot use the backup route (no relay, no link, failed
+     * subscription data, turned off), regardless of whether it is needed right now.
+     */
+    private fun staticBypassIssue(): BypassReason? {
+        val configuration = selectedConfiguration ?: return null
+        val hop = TurnRouting.relayHop(configuration)
+        val subscriptionId = hop.subscriptionId ?: configuration.subscriptionId
+        val record = subscriptionId?.let { AppRepositories.sync(getApplication()).record(it) }
+        val state = subscriptionId?.let { subscriptionBypassStates.value[it] }
+        return BypassStatus.issue(
+            disabledInSettings = graphTurnMode() == TurnMode.OFF,
+            subscriptionState = state,
+            outcome = record?.outcome,
+            hasUsableRelay = turnMetadataStore.server(hop.serverAddress)?.isUsable == true,
+            hasVkLink = TurnDialerRegistry.shared.effectiveVKLink().isNotEmpty(),
+        )
+    }
+
+    /** The issue the home screen shows: only when the backup route is needed. */
+    private fun currentBypassIssue(): BypassReason? {
+        if (_vpnStatus.value != VpnStatus.CONNECTED) return null
+        _runtimeBypassIssue.value?.let { return it }
+        if (!bypassNeeded()) return null
+        return staticBypassIssue()
+    }
+
+    /** The selected server's display name, for "<server> has no backup route". */
+    val selectedServerName: String?
+        get() = selectedConfiguration?.name
 
     /**
      * The TURN mode or the master switch changed while connected: start or stop the watch
@@ -663,6 +801,7 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
             captchaPending = _captchaPending.value,
             captchaSeen = _captchaSeenInSession.value,
             failure = _connectionFailure.value,
+            bypassIssue = currentBypassIssue(),
         )
     }
 

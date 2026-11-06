@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backup route (TURN) status: subscription icon, popovers, "connected without" graph. -->
+<resources>
+    <string name="connected_without_bypass">Connected Without Backup Route</string>
+    <string name="bypass_reason_load_failed">Backup route settings did not load</string>
+    <string name="bypass_reason_not_found">Subscription not found</string>
+    <string name="bypass_reason_no_vk_link">No VK call link</string>
+    <string name="bypass_reason_captcha_failed">VK check was not passed</string>
+    <string name="bypass_reason_runtime_failed">Backup route did not come up</string>
+    <string name="bypass_reason_disabled">Backup route is off in settings</string>
+    <string name="bypass_reason_server_not_covered">This server has no backup route — choose another</string>
+    <string name="bypass_reason_server_not_covered_named">%1$s has no backup route — choose another server</string>
+    <string name="bypass_node_load_failed">Did not load · update the subscription ↻</string>
+    <string name="bypass_node_not_found">Subscription not found · renew it in the bot</string>
+    <string name="bypass_node_no_vk_link">No VK call link · contact support</string>
+    <string name="bypass_node_captcha_failed">VK check not passed · connect again</string>
+    <string name="bypass_node_runtime_failed">Did not come up · connect again</string>
+    <string name="bypass_node_disabled">Off in settings</string>
+    <string name="bypass_node_server_not_covered">Not on this server · choose one with a backup route</string>
+    <string name="bypass_node_needed">Backup route needed</string>
+    <string name="bypass_node_sites_may_fail">Sites may not open</string>
+    <string name="graph_node_connected_direct">Connected Directly</string>
+    <string name="bypass_popover_available_title">Backup route</string>
+    <string name="bypass_popover_available_body">This subscription has one. It turns on by itself if your carrier blocks the usual connection.</string>
+    <string name="bypass_popover_available_body_on">This subscription has one. It is used on every connection.</string>
+    <string name="bypass_popover_available_body_off">This subscription has one. It is currently off in settings.</string>
+    <string name="bypass_popover_none_title">No backup route</string>
+    <string name="bypass_popover_none_body">This subscription connects only directly.</string>
+    <string name="bypass_popover_load_failed_body">The server did not respond. Check your internet and update the subscription ↻.</string>
+    <string name="bypass_popover_not_found_body">It may have expired or been deleted. Renew it in the bot and update ↻.</string>
+    <string name="bypass_popover_no_vk_link_body">The backup route does not work without it. Update the subscription ↻; if that does not help, contact support.</string>
+    <string name="bypass_a11y_available">Backup route available</string>
+    <string name="bypass_a11y_none">No backup route</string>
+    <string name="bypass_a11y_hint">Details</string>
+</resources>

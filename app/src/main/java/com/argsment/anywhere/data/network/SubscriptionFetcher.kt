@@ -4,6 +4,7 @@ import android.util.Base64
 import com.argsment.anywhere.data.model.ProxyConfiguration
 import com.argsment.anywhere.data.sync.SubscriptionPush
 import com.argsment.anywhere.turn.TurnEnvironment
+import com.argsment.anywhere.turn.TurnFetchOutcome
 import com.argsment.anywhere.turn.TurnMetadata
 import com.argsment.anywhere.vpn.util.AnywhereLogger
 import com.argsment.anywhere.vpn.protocol.tls.CertificatePolicy
@@ -37,7 +38,12 @@ object SubscriptionFetcher {
          */
         val turn: TurnMetadata? = null,
         /** The `push` block of the same response: revision + where to poll it. */
-        val push: SubscriptionPush? = null
+        val push: SubscriptionPush? = null,
+        /**
+         * How the `/turn` request ended; `null` when it was not made (no usable URL) or
+         * the server answered 2xx with neither block (not ours).
+         */
+        val turnOutcome: TurnFetchOutcome? = null,
     )
 
     sealed class FetchError(message: String) : Exception(message) {
@@ -64,7 +70,8 @@ object SubscriptionFetcher {
         val endpoint = fetchTurnMetadata(urlString, allowInsecure, remnawaveHWID)
         return result.copy(
             turn = if (includeTurnMetadata) endpoint?.turn else null,
-            push = endpoint?.push
+            push = endpoint?.push,
+            turnOutcome = endpoint?.outcome,
         )
     }
 
@@ -193,13 +200,15 @@ object SubscriptionFetcher {
                 url, "Anywhere", remnawaveHWID, allowInsecure, TURN_METADATA_TIMEOUT_MS
             )
             try {
-                if (connection.responseCode !in 200..299) return@withContext null
+                val code = connection.responseCode
+                if (code == 404) return@withContext TurnEndpointResponse(null, null, TurnFetchOutcome.NOT_FOUND)
+                if (code !in 200..299) return@withContext TurnEndpointResponse(null, null, TurnFetchOutcome.FAILED)
                 val body = connection.inputStream.readBytes()
                 val metadata = TurnMetadata.extractFromSingBoxJson(body)
                 val push = SubscriptionPush.parse(body)
                 if (metadata == null && push == null) return@withContext null
                 logger.debug("TURN metadata: ${metadata?.servers?.size ?: 0} server(s), rev ${push?.rev}")
-                TurnEndpointResponse(metadata, push)
+                TurnEndpointResponse(metadata, push, TurnFetchOutcome.OK)
             } finally {
                 connection.disconnect()
             }
@@ -207,12 +216,16 @@ object SubscriptionFetcher {
             throw e
         } catch (e: Exception) {
             logger.debug("TURN metadata probe failed: ${e.message}")
-            null
+            TurnEndpointResponse(null, null, TurnFetchOutcome.FAILED)
         }
     }
 
-    /** What `<subscription>/turn` returned; at least one of the two is non-null. */
-    internal data class TurnEndpointResponse(val turn: TurnMetadata?, val push: SubscriptionPush?)
+    /** What `<subscription>/turn` returned, and how the request ended. */
+    internal data class TurnEndpointResponse(
+        val turn: TurnMetadata?,
+        val push: SubscriptionPush?,
+        val outcome: TurnFetchOutcome,
+    )
 
     private fun openConnection(
         url: URL,

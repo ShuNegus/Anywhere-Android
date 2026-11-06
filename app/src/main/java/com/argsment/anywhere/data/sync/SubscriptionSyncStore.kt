@@ -1,6 +1,10 @@
 package com.argsment.anywhere.data.sync
 
 import com.argsment.anywhere.data.repository.writeTextAsync
+import com.argsment.anywhere.turn.TurnFetchOutcome
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
@@ -15,7 +19,35 @@ data class SubscriptionSyncRecord(
     val revUrl: String? = null,
     /** Revision the configurations on disk correspond to. */
     val rev: Long = 0,
-)
+    /** [TurnFetchOutcome] raw value of the last `/turn` request; `null` before it was recorded. */
+    val turnOutcome: String? = null,
+    /** `/turn` has answered with our blocks at least once: failures are ours to report. */
+    val turnSeen: Boolean = false,
+) {
+    val outcome: TurnFetchOutcome? get() = TurnFetchOutcome.fromRaw(turnOutcome)
+
+    /** The subscription is served by our backend (it answered `/turn` or has a revision URL). */
+    val knownOurs: Boolean get() = turnSeen || revUrl != null
+
+    companion object {
+        /**
+         * The record after a refresh. A failed `/turn` keeps what was known (revision URL,
+         * revision): the configurations were refreshed, the bypass data was not.
+         */
+        fun next(previous: SubscriptionSyncRecord?, push: SubscriptionPush?, outcome: TurnFetchOutcome?): SubscriptionSyncRecord {
+            val seen = (previous?.turnSeen ?: false) || outcome == TurnFetchOutcome.OK
+            if (outcome == TurnFetchOutcome.FAILED && previous != null) {
+                return previous.copy(turnOutcome = outcome.rawValue, turnSeen = seen)
+            }
+            return SubscriptionSyncRecord(
+                revUrl = push?.revUrl ?: if (outcome == TurnFetchOutcome.NOT_FOUND) previous?.revUrl else null,
+                rev = push?.rev ?: 0,
+                turnOutcome = outcome?.rawValue,
+                turnSeen = seen,
+            )
+        }
+    }
+}
 
 /**
  * Per-subscription revision bookkeeping for forced refreshes, keyed by `Subscription.id`,
@@ -28,14 +60,20 @@ class SubscriptionSyncStore(private val file: File?) {
 
     private val lock = Any()
     private var records: Map<String, SubscriptionSyncRecord> = load()
+    private val _flow = MutableStateFlow(records)
+
+    /** Observable snapshot keyed by subscription id string (the home screen's bypass icons). */
+    val flow: StateFlow<Map<String, SubscriptionSyncRecord>> = _flow.asStateFlow()
 
     fun record(subscriptionId: UUID): SubscriptionSyncRecord? =
         synchronized(lock) { records[subscriptionId.toString()] }
 
-    /** Called after every successful fetch, with the `push` block it carried (or none). */
-    fun recordRefresh(subscriptionId: UUID, push: SubscriptionPush?) {
-        val record = SubscriptionSyncRecord(revUrl = push?.revUrl, rev = push?.rev ?: 0)
-        mutate { it[subscriptionId.toString()] = record }
+    /**
+     * Called after every successful fetch, with the `push` block it carried (or none) and
+     * how its `/turn` request ended.
+     */
+    fun recordRefresh(subscriptionId: UUID, push: SubscriptionPush?, outcome: TurnFetchOutcome? = null) {
+        mutate { it[subscriptionId.toString()] = SubscriptionSyncRecord.next(it[subscriptionId.toString()], push, outcome) }
     }
 
     fun remove(subscriptionId: UUID) = mutate { it.remove(subscriptionId.toString()) }
@@ -45,6 +83,7 @@ class SubscriptionSyncStore(private val file: File?) {
             val next = LinkedHashMap(records)
             block(next)
             records = next
+            _flow.value = next
             next
         }
         val target = file ?: return

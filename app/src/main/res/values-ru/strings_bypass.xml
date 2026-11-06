@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Backup route (TURN) status: subscription icon, popovers, "connected without" graph. -->
+<resources>
+    <string name="connected_without_bypass">Подключено без резервного пути</string>
+    <string name="bypass_reason_load_failed">Настройки резервного пути не загрузились</string>
+    <string name="bypass_reason_not_found">Подписка не найдена</string>
+    <string name="bypass_reason_no_vk_link">Нет ссылки на звонок VK</string>
+    <string name="bypass_reason_captcha_failed">Не удалось пройти проверку VK</string>
+    <string name="bypass_reason_runtime_failed">Резервный путь не поднялся</string>
+    <string name="bypass_reason_disabled">Резервный путь отключён в настройках</string>
+    <string name="bypass_reason_server_not_covered">У этого сервера нет резервного пути — выберите другой</string>
+    <string name="bypass_reason_server_not_covered_named">У %1$s нет резервного пути — выберите другой сервер</string>
+    <string name="bypass_node_load_failed">Не загрузились · обновите подписку ↻</string>
+    <string name="bypass_node_not_found">Подписка не найдена · продлите в боте</string>
+    <string name="bypass_node_no_vk_link">Нет ссылки на звонок VK · напишите в поддержку</string>
+    <string name="bypass_node_captcha_failed">Проверка VK не пройдена · подключитесь ещё раз</string>
+    <string name="bypass_node_runtime_failed">Не поднялся · подключитесь ещё раз</string>
+    <string name="bypass_node_disabled">Отключён в настройках</string>
+    <string name="bypass_node_server_not_covered">Нет у этого сервера · выберите сервер с резервным путём</string>
+    <string name="bypass_node_needed">Нужен резервный путь</string>
+    <string name="bypass_node_sites_may_fail">Сайты могут не открываться</string>
+    <string name="graph_node_connected_direct">Подключено напрямую</string>
+    <string name="bypass_popover_available_title">Резервный путь</string>
+    <string name="bypass_popover_available_body">Есть у этой подписки. Включится сам, если оператор заблокирует обычное подключение.</string>
+    <string name="bypass_popover_available_body_on">Есть у этой подписки. Используется при каждом подключении.</string>
+    <string name="bypass_popover_available_body_off">Есть у этой подписки. Сейчас выключен в настройках.</string>
+    <string name="bypass_popover_none_title">Резервного пути нет</string>
+    <string name="bypass_popover_none_body">Эта подписка подключается только напрямую.</string>
+    <string name="bypass_popover_load_failed_body">Сервер не ответил. Проверьте интернет и обновите подписку ↻.</string>
+    <string name="bypass_popover_not_found_body">Возможно, она закончилась или удалена. Продлите её в боте и обновите ↻.</string>
+    <string name="bypass_popover_no_vk_link_body">Без неё резервный путь не работает. Обновите подписку ↻; не поможет — напишите в поддержку.</string>
+    <string name="bypass_a11y_available">Резервный путь доступен</string>
+    <string name="bypass_a11y_none">Резервного пути нет</string>
+    <string name="bypass_a11y_hint">Подробнее</string>
+</resources>

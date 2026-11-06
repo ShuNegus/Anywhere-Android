@@ -5,6 +5,7 @@ import com.argsment.anywhere.data.model.Subscription
 import com.argsment.anywhere.data.network.SubscriptionFetcher
 import com.argsment.anywhere.data.repository.ConfigRepository
 import com.argsment.anywhere.data.repository.SubscriptionRepository
+import com.argsment.anywhere.turn.TurnFetchOutcome
 import com.argsment.anywhere.turn.TurnMetadataStore
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -82,9 +83,12 @@ class SubscriptionUpdater(
             )
         )
 
-        // Always, including null: a `turn` block withdrawn on the server must stop being used.
-        turnMetadataStore()?.setMetadata(result.turn, current.id)
-        syncStore.recordRefresh(current.id, result.push)
+        // Including null: a `turn` block withdrawn on the server must stop being used. A
+        // failed `/turn` request is not a withdrawal: the last known relays stay in use.
+        if (result.turnOutcome != TurnFetchOutcome.FAILED) {
+            turnMetadataStore()?.setMetadata(result.turn, current.id)
+        }
+        syncStore.recordRefresh(current.id, result.push, result.turnOutcome)
 
         _updated.tryEmit(current.id)
     }

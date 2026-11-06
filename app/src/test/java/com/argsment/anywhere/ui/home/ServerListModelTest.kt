@@ -119,4 +119,20 @@ class ServerListModelTest {
         assertEquals(SubscriptionSwipe.Outcome.CLOSE, SubscriptionSwipe.settle(-35f))
         assertEquals(SubscriptionSwipe.Outcome.CLOSE, SubscriptionSwipe.settle(0f))
     }
+
+    @Test
+    fun bypassMarksOnlyInPartlyCoveredSubscriptions() {
+        val partial = UUID.randomUUID()
+        val full = UUID.randomUUID()
+        fun cfg(sub: UUID, host: String) = config("x", sub).copy(serverAddress = host)
+        val a = cfg(partial, "a.example.invalid")
+        val b = cfg(partial, "b.example.invalid")
+        val c = cfg(full, "a.example.invalid")
+        fun relay(host: String) = com.argsment.anywhere.turn.TurnServerInfo(host, true, "203.0.113.1:56000", "00")
+        val metadata = mapOf(
+            partial to com.argsment.anywhere.turn.TurnMetadata(servers = mapOf("a.example.invalid" to relay("a.example.invalid"))),
+            full to com.argsment.anywhere.turn.TurnMetadata(servers = mapOf("a.example.invalid" to relay("a.example.invalid"))),
+        )
+        assertEquals(setOf(a.id), ServerListModel.bypassServerIds(listOf(a, b, c), metadata))
+    }
 }

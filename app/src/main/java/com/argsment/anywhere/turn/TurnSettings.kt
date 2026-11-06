@@ -56,6 +56,7 @@ class TurnSettings(
         /** Legacy boolean, read only to migrate into [TURN_MODE]. */
         const val TURN_ENABLED = "turnEnabled"
         const val TURN_FORCED = "turnForced"
+        const val TURN_SUPPRESSED = "turnSuppressed"
         const val TURN_VK_LINK = "turnVKLink"
         const val TURN_PEERS = "turnPeers"
         const val TURN_CAPTCHA_MANUAL = "turnCaptchaManual"
@@ -106,6 +107,15 @@ class TurnSettings(
     var turnForced: Boolean
         get() = prefs.getBoolean(Keys.TURN_FORCED, false)
         set(value) = prefs.edit().putBoolean(Keys.TURN_FORCED, value).apply()
+
+    /**
+     * Set when the backup route failed to come up this session: new flows dial directly
+     * (the pools are torn down) while the graph keeps the session's TURN context. Cleared
+     * by the next connect/disconnect.
+     */
+    var turnSuppressed: Boolean
+        get() = prefs.getBoolean(Keys.TURN_SUPPRESSED, false)
+        set(value) = prefs.edit().putBoolean(Keys.TURN_SUPPRESSED, value).apply()
 
     /** Whether any TURN behaviour applies at all this session. */
     val turnActiveForSession: Boolean

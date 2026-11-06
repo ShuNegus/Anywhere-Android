@@ -12,6 +12,7 @@
     <string name="server_list_measure_ping">Measure server ping</string>
     <string name="server_list_add_subscription">Add Subscription</string>
     <string name="server_list_delete_subscription">Delete Subscription</string>
+    <string name="server_list_refresh_subscription">Update Subscription</string>
     <string name="server_list_delete_confirm_title">Delete “%1$s”?</string>
     <string name="server_list_delete_confirm_message">Its servers will be removed from the list.</string>
     <string name="server_list_empty_title">No Subscription</string>

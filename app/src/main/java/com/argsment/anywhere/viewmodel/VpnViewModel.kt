@@ -1,5 +1,7 @@
 package com.argsment.anywhere.viewmodel
 
+import com.argsment.anywhere.data.sync.SubscriptionUpdater
+import com.argsment.anywhere.data.repository.AppRepositories
 import android.app.Application
 import android.content.ComponentName
 import android.content.Context
@@ -18,9 +20,7 @@ import com.argsment.anywhere.data.network.LatencyTester
 import com.argsment.anywhere.data.network.SubscriptionFetcher
 import com.argsment.anywhere.data.repository.CertificateRepository
 import com.argsment.anywhere.data.repository.ChainRepository
-import com.argsment.anywhere.data.repository.ConfigRepository
 import com.argsment.anywhere.data.repository.RuleSetRepository
-import com.argsment.anywhere.data.repository.SubscriptionRepository
 import com.argsment.anywhere.turn.TurnCaptchaMonitor
 import com.argsment.anywhere.turn.TurnEnvironment
 import com.argsment.anywhere.turn.TurnMetadata
@@ -62,8 +62,9 @@ private val logger = AnywhereLogger("VPNViewModel")
 
 class VpnViewModel(application: Application) : AndroidViewModel(application) {
 
-    val configRepository = ConfigRepository(application)
-    val subscriptionRepository = SubscriptionRepository(application)
+    // Process-wide: the auto-refresh worker writes to the same instances.
+    val configRepository = AppRepositories.config(application)
+    val subscriptionRepository = AppRepositories.subscriptions(application)
     val ruleSetRepository = RuleSetRepository(application)
     val certificateRepository = CertificateRepository(application)
     val chainRepository = ChainRepository(application)
@@ -850,54 +851,15 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteSubscription(subscription: Subscription) {
         subscriptionRepository.delete(subscription.id, configRepository)
         turnMetadataStore.removeMetadata(subscription.id)
+        AppRepositories.sync(getApplication()).remove(subscription.id)
         ensureValidSelection()
         checkOrphanedRuleSets()
         disconnectIfSelectionGone()
     }
 
+    /** Shared with the background auto-refresh — see [SubscriptionUpdater]. Throws on failure. */
     suspend fun updateSubscription(subscription: Subscription) {
-        val result = SubscriptionFetcher.fetch(subscription.url)
-
-        // Match new configurations against old ones by name to preserve IDs (and routing rules).
-        // When multiple configs share the same name, they are matched positionally within that group.
-        val oldConfigs = configRepository.getAll().filter { it.subscriptionId == subscription.id }
-
-        val oldByName = mutableMapOf<String, MutableList<ProxyConfiguration>>()
-        for (old in oldConfigs) {
-            oldByName.getOrPut(old.name) { mutableListOf() }.add(old)
-        }
-        val oldNameCursor = mutableMapOf<String, Int>()
-
-        val newConfigs = result.configurations.map { newConfig ->
-            val name = newConfig.name
-            val cursor = oldNameCursor.getOrDefault(name, 0)
-            val group = oldByName[name]
-            val id = if (group != null && cursor < group.size) {
-                oldNameCursor[name] = cursor + 1
-                group[cursor].id
-            } else {
-                newConfig.id
-            }
-            newConfig.copy(id = id, subscriptionId = subscription.id)
-        }
-
-        // Atomically replace old configurations with new ones (single StateFlow emission)
-        configRepository.replaceBySubscription(subscription.id, newConfigs)
-
-        // Preserve old metadata when new values are null and respect user-customized names.
-        val updated = subscription.copy(
-            lastUpdate = System.currentTimeMillis(),
-            name = if (subscription.isNameCustomized) subscription.name else (result.name ?: subscription.name),
-            upload = result.upload ?: subscription.upload,
-            download = result.download ?: subscription.download,
-            total = result.total ?: subscription.total,
-            expire = result.expire ?: subscription.expire
-        )
-        subscriptionRepository.update(updated)
-
-        // Always, including null: a `turn` block withdrawn on the server must stop being used.
-        turnMetadataStore.setMetadata(result.turn, subscription.id)
-
+        subscriptionUpdater.update(subscription)
         ensureValidSelection()
     }
 
@@ -1151,6 +1113,16 @@ class VpnViewModel(application: Application) : AndroidViewModel(application) {
         syncRoutingConfigurationToNE()
 
         prefs.edit().putBoolean("hasCompletedOnboarding", true).apply()
+    }
+
+    private val subscriptionUpdater: SubscriptionUpdater = AppRepositories.updater(application)
+
+    // Last in the class so every property above is initialised: a background refresh
+    // may have dropped the selected configuration.
+    init {
+        viewModelScope.launch {
+            subscriptionUpdater.updated.collect { ensureValidSelection() }
+        }
     }
 
     private fun ensureValidSelection() {

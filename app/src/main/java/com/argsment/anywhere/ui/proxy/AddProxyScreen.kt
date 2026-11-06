@@ -1,5 +1,6 @@
 package com.argsment.anywhere.ui.proxy
 
+import com.argsment.anywhere.data.repository.AppRepositories
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.foundation.clickable
@@ -123,6 +124,7 @@ fun AddProxyScreen(
                     total = result.total,
                     expire = result.expire
                 )
+                AppRepositories.sync(context).recordRefresh(subscription.id, result.push)
                 onSubscriptionImport(result.configurations, subscription, result.turn)
             } catch (e: Exception) {
                 linkErrorMessage = e.message ?: context.getString(R.string.import_failed)

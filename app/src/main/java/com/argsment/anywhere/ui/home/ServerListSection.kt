@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Speed
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -88,6 +89,10 @@ fun ServerListSection(
     onAddSubscription: () -> Unit,
     onDeleteSubscription: (UUID) -> Unit,
     modifier: Modifier = Modifier,
+    /** Refresh from the header button. Available without Pro Mode, which hides Proxies. */
+    onRefreshSubscription: (UUID) -> Unit = {},
+    /** The subscription being refreshed: it shows a spinner, the others are disabled. */
+    refreshingSubscription: UUID? = null,
 ) {
     if (sections.isEmpty()) {
         ServerListEmptyState(onAddSubscription = onAddSubscription, modifier = modifier)
@@ -116,6 +121,9 @@ fun ServerListSection(
                             swipedSection = null
                             onDeleteSubscription(subscriptionId)
                         },
+                        isRefreshing = refreshingSubscription == subscriptionId,
+                        refreshEnabled = refreshingSubscription == null,
+                        onRefresh = { onRefreshSubscription(subscriptionId) },
                         modifier = headerModifier,
                     )
                 } else {
@@ -195,7 +203,7 @@ private fun SectionTitle(title: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * A subscription's header: name on the left, a flat trash on the right, and a swipe to
+ * A subscription's header: name on the left, flat refresh and trash on the right, and a swipe to
  * the left that reveals a red delete button (dragging past 160 dp deletes outright).
  * The drag only claims clearly horizontal movement, so vertical scrolling still works.
  */
@@ -205,6 +213,9 @@ private fun SwipeableSubscriptionHeader(
     isOpen: Boolean,
     onOpenChange: (Boolean) -> Unit,
     onDelete: () -> Unit,
+    isRefreshing: Boolean,
+    refreshEnabled: Boolean,
+    onRefresh: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -217,6 +228,7 @@ private fun SwipeableSubscriptionHeader(
         label = "swipeOffset",
     )
     val deleteLabel = stringResource(R.string.server_list_delete_subscription)
+    val refreshLabel = stringResource(R.string.server_list_refresh_subscription)
 
     Box(
         modifier = modifier
@@ -284,6 +296,30 @@ private fun SwipeableSubscriptionHeader(
             Spacer(modifier = Modifier.width(8.dp))
             // While the row is slid away its own trash hides — two trashes in a row otherwise.
             val showsTrash = offset > -4f
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .offset(x = 10.dp)
+                    .size(44.dp)
+                    .alpha(if (showsTrash) 1f else 0f)
+                    .clickable(enabled = showsTrash && refreshEnabled, role = Role.Button, onClick = onRefresh)
+                    .semantics { contentDescription = refreshLabel },
+            ) {
+                if (isRefreshing) {
+                    CircularProgressIndicator(
+                        color = Color.White,
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(16.dp),
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Outlined.Refresh,
+                        contentDescription = null,
+                        tint = Color.White.copy(alpha = if (refreshEnabled) 0.45f else 0.25f),
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier

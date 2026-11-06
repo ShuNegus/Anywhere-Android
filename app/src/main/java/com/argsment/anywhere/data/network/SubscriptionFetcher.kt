@@ -2,6 +2,7 @@ package com.argsment.anywhere.data.network
 
 import android.util.Base64
 import com.argsment.anywhere.data.model.ProxyConfiguration
+import com.argsment.anywhere.data.sync.SubscriptionPush
 import com.argsment.anywhere.turn.TurnEnvironment
 import com.argsment.anywhere.turn.TurnMetadata
 import com.argsment.anywhere.vpn.util.AnywhereLogger
@@ -31,10 +32,12 @@ object SubscriptionFetcher {
         val total: Long?,
         val expire: Long?,
         /**
-         * TURN relays advertised by the same endpoint, fetched separately. `null` when the
-         * subscription serves no sing-box document with a `turn` block.
+         * TURN relays advertised next to the subscription, fetched separately (see
+         * [fetchTurnMetadata]). `null` when the server offers no `turn` block.
          */
-        val turn: TurnMetadata? = null
+        val turn: TurnMetadata? = null,
+        /** The `push` block of the same response: revision + where to poll it. */
+        val push: SubscriptionPush? = null
     )
 
     sealed class FetchError(message: String) : Exception(message) {
@@ -43,18 +46,11 @@ object SubscriptionFetcher {
         class NetworkError(message: String) : FetchError("Network error: $message")
     }
 
-    /**
-     * Remnawave renders a sing-box document — the only representation that carries the
-     * `turn` block — when the client identifies itself as sing-box. Same string as iOS
-     * (`SubscriptionFetcher.singBoxUserAgent`); the server matches on `sing-box`.
-     */
-    const val SING_BOX_USER_AGENT = "SFI/1.0 (iOS; sing-box 1.14.0)"
-
     private const val TURN_METADATA_TIMEOUT_MS = 15_000
 
     /**
-     * @param includeTurnMetadata whether to make the second, sing-box-flavoured request for
-     *   the `turn` block. Defaults to the `turnFeatureEnabled` master switch.
+     * @param includeTurnMetadata whether to make the second request for the `turn` block.
+     *   Defaults to the `turnFeatureEnabled` master switch.
      */
     suspend fun fetch(
         urlString: String,
@@ -63,10 +59,13 @@ object SubscriptionFetcher {
         includeTurnMetadata: Boolean = TurnEnvironment.settings?.featureEnabled ?: true
     ): Result {
         val result = fetchConfigurations(urlString, allowInsecure, remnawaveHWID)
-        if (!includeTurnMetadata) return result
-        // Second, optional request to the same URL. Never fatal — see fetchTurnMetadata.
-        val turn = fetchTurnMetadata(urlString, allowInsecure, remnawaveHWID)
-        return result.copy(turn = turn)
+        // Second, optional request for the `turn` and `push` blocks. Never fatal — see
+        // fetchTurnMetadata. Made even with TURN off: the revision drives auto-refresh.
+        val endpoint = fetchTurnMetadata(urlString, allowInsecure, remnawaveHWID)
+        return result.copy(
+            turn = if (includeTurnMetadata) endpoint?.turn else null,
+            push = endpoint?.push
+        )
     }
 
     private suspend fun fetchConfigurations(
@@ -146,27 +145,61 @@ object SubscriptionFetcher {
     // MARK: - TURN metadata
 
     /**
-     * Asks the same endpoint for its sing-box rendering and keeps only the `turn` block
-     * (spec §4.3). Entirely best-effort: a network error, an HTTP error, a non-JSON body or
-     * a missing/empty `turn` block all yield `null`, and the subscription is added exactly
-     * as before.
+     * Fetches the `turn` and `push` blocks for a subscription. Entirely best-effort: a
+     * network error, an HTTP error or a non-JSON body yield `null`, a missing/empty block
+     * yields `null` for that block, and the subscription is added exactly as before.
+     *
+     * Asks the dedicated `<subscription>/turn` endpoint, served next to the subscription:
+     * it returns `{"turn": {...}, "push": {...}}` with only the user's own relays (`turn`
+     * is absent when the user has none). There is deliberately
+     * no fallback to the sing-box rendering of the subscription — that one lists every
+     * relay, not just the user's, and sing-box subscriptions are being retired.
      */
     private suspend fun fetchTurnMetadata(
         urlString: String,
         allowInsecure: Boolean,
         remnawaveHWID: String?
-    ): TurnMetadata? = withContext(Dispatchers.IO) {
+    ): TurnEndpointResponse? {
+        val endpoint = turnEndpointUrl(urlString) ?: return null
+        return requestTurnMetadata(endpoint, allowInsecure, remnawaveHWID)
+    }
+
+    /**
+     * `https://host/<id>` → `https://host/<id>/turn`; query kept, fragment dropped.
+     * `null` for anything that is not an http(s) URL with a non-empty path.
+     */
+    internal fun turnEndpointUrl(urlString: String): String? {
+        val uri = try {
+            java.net.URI(urlString.trim())
+        } catch (e: Exception) {
+            return null
+        }
+        val scheme = uri.scheme?.lowercase()
+        if ((scheme != "http" && scheme != "https") || uri.rawAuthority.isNullOrEmpty()) return null
+        val path = uri.rawPath.orEmpty().trimEnd('/')
+        if (path.isEmpty()) return null
+        val query = uri.rawQuery?.let { "?$it" }.orEmpty()
+        return "$scheme://${uri.rawAuthority}$path/turn$query"
+    }
+
+    private suspend fun requestTurnMetadata(
+        urlString: String,
+        allowInsecure: Boolean,
+        remnawaveHWID: String?
+    ): TurnEndpointResponse? = withContext(Dispatchers.IO) {
         try {
             val url = URL(urlString)
             val connection = openConnection(
-                url, SING_BOX_USER_AGENT, remnawaveHWID, allowInsecure, TURN_METADATA_TIMEOUT_MS
+                url, "Anywhere", remnawaveHWID, allowInsecure, TURN_METADATA_TIMEOUT_MS
             )
             try {
                 if (connection.responseCode !in 200..299) return@withContext null
                 val body = connection.inputStream.readBytes()
-                val metadata = TurnMetadata.extractFromSingBoxJson(body) ?: return@withContext null
-                logger.debug("TURN metadata: ${metadata.servers.size} server(s)")
-                metadata
+                val metadata = TurnMetadata.extractFromSingBoxJson(body)
+                val push = SubscriptionPush.parse(body)
+                if (metadata == null && push == null) return@withContext null
+                logger.debug("TURN metadata: ${metadata?.servers?.size ?: 0} server(s), rev ${push?.rev}")
+                TurnEndpointResponse(metadata, push)
             } finally {
                 connection.disconnect()
             }
@@ -177,6 +210,9 @@ object SubscriptionFetcher {
             null
         }
     }
+
+    /** What `<subscription>/turn` returned; at least one of the two is non-null. */
+    internal data class TurnEndpointResponse(val turn: TurnMetadata?, val push: SubscriptionPush?)
 
     private fun openConnection(
         url: URL,

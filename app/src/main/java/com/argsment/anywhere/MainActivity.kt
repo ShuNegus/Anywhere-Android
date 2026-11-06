@@ -1,5 +1,9 @@
 package com.argsment.anywhere
 
+import kotlinx.coroutines.launch
+import com.argsment.anywhere.data.sync.SubscriptionRefreshWorker
+import com.argsment.anywhere.data.sync.SubscriptionAutoRefresh
+import androidx.lifecycle.lifecycleScope
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -35,6 +39,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        SubscriptionRefreshWorker.schedule(this)
         enableEdgeToEdge()
 
         viewModel.onRequestVpnPermission = { intent ->
@@ -77,6 +82,10 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         TurnEnvironment.install(this)
         TurnEnvironment.settings?.appIsForeground = true
+        // Same check as the hourly worker, on every return to the app (throttled).
+        lifecycleScope.launch {
+            SubscriptionAutoRefresh.runPass(applicationContext, minIntervalMs = FOREGROUND_PASS_INTERVAL_MS)
+        }
     }
 
     override fun onStop() {
@@ -100,5 +109,9 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         viewModel.onRequestVpnPermission = null
+    }
+
+    private companion object {
+        const val FOREGROUND_PASS_INTERVAL_MS = 10 * 60 * 1000L
     }
 }

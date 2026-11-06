@@ -1,5 +1,8 @@
 package com.argsment.anywhere.ui.home
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -119,6 +122,11 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
     var showingStatsSheet by remember { mutableStateOf(false) }
     /** Deleting a subscription is destructive, so it goes through a confirmation. */
     var subscriptionPendingDeletion by remember { mutableStateOf<Subscription?>(null) }
+    /** Subscription being refreshed from its header button; one at a time. */
+    var refreshingSubscription by remember { mutableStateOf<UUID?>(null) }
+    var subscriptionRefreshError by remember { mutableStateOf<String?>(null) }
+    val refreshScope = rememberCoroutineScope()
+    val unknownError = stringResource(R.string.unknown_error)
 
     // Without Pro Mode there is no Proxies tab: an import deep link opens the add sheet
     // over Home (spec §10). With Pro Mode the Proxies tab consumes it, as upstream.
@@ -246,6 +254,25 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
                             onDeleteSubscription = { id ->
                                 subscriptionPendingDeletion = subscriptions.firstOrNull { it.id == id }
                             },
+                            // Same path as Update on the Proxies tab, which Pro Mode hides.
+                            onRefreshSubscription = { id ->
+                                val subscription = subscriptions.firstOrNull { it.id == id }
+                                if (refreshingSubscription == null && subscription != null) {
+                                    refreshingSubscription = id
+                                    refreshScope.launch {
+                                        try {
+                                            viewModel.updateSubscription(subscription)
+                                        } catch (e: CancellationException) {
+                                            throw e
+                                        } catch (e: Exception) {
+                                            subscriptionRefreshError = e.message ?: unknownError
+                                        } finally {
+                                            refreshingSubscription = null
+                                        }
+                                    }
+                                }
+                            },
+                            refreshingSubscription = refreshingSubscription,
                         )
                     }
                 }
@@ -342,6 +369,19 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
             dismissButton = {
                 TextButton(onClick = { subscriptionPendingDeletion = null }) {
                     Text(stringResource(R.string.cancel))
+                }
+            }
+        )
+    }
+
+    subscriptionRefreshError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { subscriptionRefreshError = null },
+            title = { Text(stringResource(R.string.update_failed)) },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = { subscriptionRefreshError = null }) {
+                    Text(stringResource(R.string.ok))
                 }
             }
         )

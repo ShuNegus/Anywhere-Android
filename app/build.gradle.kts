@@ -92,6 +92,7 @@ dependencies {
     implementation(libs.mlkit.barcode)
     implementation(libs.coroutines.android)
     implementation(libs.bouncycastle.bcprov)
+    implementation(libs.androidx.work.runtime.ktx)
     implementation("org.brotli:dec:0.1.2")
     // vk-turn-proxy Go core (gomobile). Not in git — build it with scripts/build-turn-aar.sh.
     implementation(files("libs/turn.aar"))

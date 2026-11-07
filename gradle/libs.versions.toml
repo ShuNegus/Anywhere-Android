@@ -13,7 +13,7 @@ kotlinxSerialization = "1.8.0"
 camerax = "1.4.1"
 mlkitBarcode = "18.3.1"
 coroutines = "1.10.1"
-bouncycastle = "1.78.1"
+bouncycastle = "1.86"
 work = "2.10.0"
 
 [libraries]

@@ -1,9 +1,8 @@
 package com.argsment.anywhere.vpn.protocol.reality
 
-import android.os.Build
-import androidx.annotation.RequiresApi
 import com.argsment.anywhere.vpn.util.AnywhereLogger
 import com.argsment.anywhere.data.model.RealityConfiguration
+import com.argsment.anywhere.vpn.MlKem768
 import com.argsment.anywhere.vpn.NativeBridge
 import com.argsment.anywhere.vpn.protocol.Transport
 import com.argsment.anywhere.vpn.protocol.tls.Tls13KeyDerivation
@@ -53,9 +52,8 @@ class RealityClient(
     private var serverHandshakeSeqNum: Long = 0
     private var serverCertVerified = false
 
-    // ML-KEM-768 state (API 35+, null on older Android)
-    private var mlkemEncapsulationKey: ByteArray? = null
-    private var mlkemPrivateKey: java.security.PrivateKey? = null
+    // Ephemeral ML-KEM-768 key pair for the X25519MLKEM768 share (cleared after handshake)
+    private var mlkemKeyPair: MlKem768.KeyPair? = null
 
     /**
      * Connects to a Reality server and performs the TLS handshake.
@@ -67,7 +65,7 @@ class RealityClient(
         val keyPair = NativeBridge.nativeX25519GenerateKeyPair()
         ephemeralPrivateKeyBytes = keyPair.copyOfRange(0, 32)
         ephemeralPublicKeyBytes = keyPair.copyOfRange(32, 64)
-        mlkemEncapsulationKey = tryGenerateMLKEMKeyPair()
+        mlkemKeyPair = generateMlKemKeyPair()
 
         val privateKey = ephemeralPrivateKeyBytes
             ?: throw RealityError.HandshakeFailed("No ephemeral key")
@@ -95,7 +93,7 @@ class RealityClient(
         val keyPair = NativeBridge.nativeX25519GenerateKeyPair()
         ephemeralPrivateKeyBytes = keyPair.copyOfRange(0, 32)
         ephemeralPublicKeyBytes = keyPair.copyOfRange(32, 64)
-        mlkemEncapsulationKey = tryGenerateMLKEMKeyPair()
+        mlkemKeyPair = generateMlKemKeyPair()
 
         connection = transport
         return performRealityHandshake()
@@ -179,7 +177,7 @@ class RealityClient(
             sessionId = zeroSessionId,
             serverName = configuration.serverName,
             publicKey = pubKeyBytes,
-            mlkemEncapsulationKey = mlkemEncapsulationKey
+            mlkemEncapsulationKey = mlkemKeyPair?.encapsulationKey
         )
 
         // Encrypt first 16 bytes of SessionId using AES-GCM
@@ -200,7 +198,7 @@ class RealityClient(
             sessionId = encryptedSessionId,
             serverName = configuration.serverName,
             publicKey = pubKeyBytes,
-            mlkemEncapsulationKey = mlkemEncapsulationKey
+            mlkemEncapsulationKey = mlkemKeyPair?.encapsulationKey
         )
 
         return TlsClientHelloBuilder.wrapInTLSRecord(finalClientHello)
@@ -276,7 +274,7 @@ class RealityClient(
         val sharedSecretData = if (serverKeyShare.size == 1120) {
             // X25519MLKEM768: server key share = MLKEM_ciphertext(1088) + X25519_public_key(32).
             // The server only commits to hybrid if our ClientHello advertised an
-            // ML-KEM encapsulation key, so mlkemPrivateKey must be set here. A
+            // ML-KEM encapsulation key, so mlkemKeyPair must be set here. A
             // decap failure produces the wrong shared secret — falling back to
             // X25519-only would derive the wrong handshake keys and surface as
             // a misleading authentication failure later. Fail fast instead.
@@ -1013,67 +1011,26 @@ class RealityClient(
         handshakeTranscript = null
         serverHandshakeSeqNum = 0
         serverCertVerified = false
-        mlkemEncapsulationKey = null
-        mlkemPrivateKey = null
+        mlkemKeyPair = null
     }
 
     /**
-     * Tries to generate an ML-KEM-768 keypair on Android 15+ (API 35).
-     * Returns the 1184-byte raw encapsulation key, or null on older Android.
-     * When non-null, sets [mlkemPrivateKey] for later decapsulation.
+     * Ephemeral ML-KEM-768 key pair. Every device has one (platform provider or the
+     * BouncyCastle fallback); Xray REALITY servers >= 26.9.9 refuse ClientHellos
+     * without an X25519MLKEM768 share. Null only if key generation itself failed.
      */
-    private fun tryGenerateMLKEMKeyPair(): ByteArray? {
-        if (!mlkemSupported) return null
-        return generateMLKEMKeyPairImpl()
-    }
-
-    @RequiresApi(35)
-    private fun generateMLKEMKeyPairImpl(): ByteArray? {
-        return try {
-            val kpg = java.security.KeyPairGenerator.getInstance("ML-KEM-768")
-            val kp = kpg.generateKeyPair()
-            mlkemPrivateKey = kp.private
-            // Raw encapsulation key is the last 1184 bytes of the DER SubjectPublicKeyInfo
-            val encoded = kp.public.encoded
-            if (encoded.size >= 1184) encoded.copyOfRange(encoded.size - 1184, encoded.size) else null
-        } catch (e: Exception) {
-            logger.debug("[Reality] ML-KEM keypair unavailable: ${e.message}")
-            null
-        }
-    }
-
-    companion object {
-        /**
-         * Whether ML-KEM-768 is usable on this device. Probed once on first access
-         * (Android 15 / API 35 adds the provider). Caching here avoids re-logging
-         * "ML-KEM keypair unavailable" on every Reality handshake on older devices.
-         */
-        private val mlkemSupported: Boolean by lazy {
-            if (Build.VERSION.SDK_INT < 35) {
-                false
-            } else runCatching {
-                java.security.KeyPairGenerator.getInstance("ML-KEM-768")
-                true
-            }.getOrElse {
-                AnywhereLogger("Reality").debug("ML-KEM-768 unavailable on this device: ${it.message}")
-                false
-            }
-        }
+    private fun generateMlKemKeyPair(): MlKem768.KeyPair? = try {
+        MlKem768.generateKeyPair()
+    } catch (e: Exception) {
+        logger.error("[Reality] ML-KEM keypair generation failed: ${e.message}")
+        null
     }
 
     /** Returns the 32-byte shared secret, or null if unavailable. */
     private fun mlkemDecapsulate(ciphertext: ByteArray): ByteArray? {
-        val privKey = mlkemPrivateKey ?: return null
-        if (Build.VERSION.SDK_INT < 35) return null
-        return mlkemDecapsulateImpl(ciphertext, privKey)
-    }
-
-    @RequiresApi(35)
-    private fun mlkemDecapsulateImpl(ciphertext: ByteArray, privKey: java.security.PrivateKey): ByteArray? {
+        val keyPair = mlkemKeyPair ?: return null
         return try {
-            val kem = javax.crypto.KEM.getInstance("ML-KEM-768")
-            val decapsulator = kem.newDecapsulator(privKey)
-            decapsulator.decapsulate(ciphertext).encoded
+            keyPair.decapsulate(ciphertext)
         } catch (e: Exception) {
             logger.warning("[Reality] ML-KEM decapsulation failed: ${e.message}")
             null

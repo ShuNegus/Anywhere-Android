@@ -103,3 +103,9 @@
 -keep interface app.anywhere.turn.** { *; }
 -dontwarn app.anywhere.turn.**
 -dontwarn go.**
+
+# WorkManager keeps its state in a Room database that is instantiated by
+# reflection (WorkDatabase_Impl.<init>()). R8 full mode strips the no-arg
+# constructor, and the app crashes on start in androidx.startup.
+-keep class * extends androidx.room.RoomDatabase { <init>(); }
+-keep class androidx.work.impl.WorkDatabase_Impl { <init>(); }

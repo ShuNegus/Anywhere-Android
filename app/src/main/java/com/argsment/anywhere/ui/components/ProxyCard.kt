@@ -127,6 +127,14 @@ fun LatencyBadge(latency: LatencyResult?, modifier: Modifier = Modifier) {
                 modifier = modifier
             )
         }
+        is LatencyResult.Rejected -> {
+            Text(
+                text = stringResource(R.string.latency_rejected),
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFFFF8A80),
+                modifier = modifier
+            )
+        }
         null -> {}
     }
 }

@@ -291,4 +291,6 @@ sealed class RealityError(message: String) : Exception(message) {
     class HandshakeFailed(msg: String) : RealityError("TLS handshake failed: $msg")
     class InvalidResponse(msg: String) : RealityError("Invalid response: $msg")
     class AuthenticationFailed : RealityError("Reality server authentication failed")
+    /** Refused locally: the server rejected us moments ago (see RealityRejectionGate). */
+    class RejectedRecently : RealityError("Reality server rejected the connection recently")
 }

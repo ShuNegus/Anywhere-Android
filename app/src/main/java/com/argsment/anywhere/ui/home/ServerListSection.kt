@@ -484,6 +484,13 @@ private fun PingCell(result: LatencyResult?) {
                 maxLines = 1,
                 softWrap = false,
             )
+            LatencyResult.Rejected -> Text(
+                text = stringResource(R.string.latency_rejected),
+                fontSize = 13.sp,
+                color = BypassWarningTextColor,
+                maxLines = 1,
+                softWrap = false,
+            )
             null -> Unit
         }
     }

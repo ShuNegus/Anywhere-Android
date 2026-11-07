@@ -3,6 +3,8 @@ package com.argsment.anywhere.data.network
 import com.argsment.anywhere.data.model.ProxyConfiguration
 import com.argsment.anywhere.vpn.protocol.ProxyClientFactory
 import com.argsment.anywhere.vpn.protocol.ProxyConnection
+import com.argsment.anywhere.vpn.protocol.reality.RealityRejectionGate
+import com.argsment.anywhere.vpn.protocol.reality.isRealityRejection
 import com.argsment.anywhere.vpn.util.AnywhereLogger
 import com.argsment.anywhere.vpn.util.DnsCache
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +26,9 @@ sealed class LatencyResult {
     data class Success(val ms: Int) : LatencyResult()
     data object Insecure : LatencyResult()
     data object Failed : LatencyResult()
+    /** The REALITY server refused us (spliced to its donor site) — usually a client
+     *  too old for the server's Xray, not a network problem. */
+    data object Rejected : LatencyResult()
 }
 
 /**
@@ -45,7 +50,12 @@ object LatencyTester {
     /** Maximum number of latency tests running at the same time. */
     private const val MAX_CONCURRENT_TESTS = 6
 
-    suspend fun test(config: ProxyConfiguration): LatencyResult = withContext(Dispatchers.IO) {
+    /**
+     * Probes bypass [RealityRejectionGate]: a server in backoff can still be re-tested
+     * by hand, and the probe's outcome updates the gate like any other handshake.
+     */
+    suspend fun test(config: ProxyConfiguration): LatencyResult =
+        withContext(Dispatchers.IO + RealityRejectionGate.Bypass) {
         withTimeoutOrNull(TIMEOUT_MS) {
             try {
                 performTest(resolveConfig(config))
@@ -56,7 +66,7 @@ object LatencyTester {
                 LatencyResult.Insecure
             } catch (e: Exception) {
                 logger.error("Latency test failed for ${config.name}: ${e.message}")
-                LatencyResult.Failed
+                if (e.isRealityRejection) LatencyResult.Rejected else LatencyResult.Failed
             }
         } ?: LatencyResult.Failed
     }
@@ -179,7 +189,7 @@ object LatencyTester {
             throw e
         } catch (e: Exception) {
             logger.error("Latency test failed for ${config.name}: ${e.message}")
-            LatencyResult.Failed
+            if (e.isRealityRejection) LatencyResult.Rejected else LatencyResult.Failed
         } finally {
             watcher.cancel()
             connections.forEach { it.cancel() }

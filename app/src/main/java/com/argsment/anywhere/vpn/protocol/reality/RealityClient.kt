@@ -13,6 +13,7 @@ import com.argsment.anywhere.vpn.protocol.tls.TlsHandshakeKeys
 import com.argsment.anywhere.vpn.protocol.tls.TlsRecordConnection
 import com.argsment.anywhere.vpn.protocol.vless.RealityError
 import com.argsment.anywhere.vpn.util.NioSocket
+import kotlinx.coroutines.currentCoroutineContext
 import java.security.SecureRandom
 import javax.crypto.Cipher
 import javax.crypto.spec.GCMParameterSpec
@@ -33,8 +34,14 @@ private val logger = AnywhereLogger("Reality")
  * the underlying [NioSocket] with TLS record encryption/decryption.
  */
 class RealityClient(
-    private val configuration: RealityConfiguration
+    private val configuration: RealityConfiguration,
+    /** The server as configured (`address:port`), never a resolved IP, so the direct
+     *  and the over-tunnel path share one [RealityRejectionGate] entry. */
+    endpoint: String,
+    private val gate: RealityRejectionGate = RealityRejectionGate.shared
 ) {
+    private val gateKey = RealityRejectionGate.Key(endpoint, configuration)
+
     private var connection: Transport? = null
 
     // Ephemeral X25519 key pair (cleared after handshake)
@@ -60,7 +67,33 @@ class RealityClient(
      *
      * @return The established [TlsRecordConnection].
      */
-    suspend fun connect(host: String, port: Int): TlsRecordConnection {
+    suspend fun connect(host: String, port: Int): TlsRecordConnection =
+        gated { performConnect(host, port) }
+
+    /** Performs the Reality handshake over an existing transport (for proxy chaining). */
+    suspend fun connect(transport: Transport): TlsRecordConnection =
+        gated { performConnect(transport) }
+
+    /**
+     * Refuses without touching the network while the server is in backoff, and feeds
+     * the handshake's outcome back to the gate.
+     */
+    private suspend fun gated(handshake: suspend () -> TlsRecordConnection): TlsRecordConnection {
+        gate.refusal(gateKey, currentCoroutineContext())?.let { throw it }
+        try {
+            val connection = handshake()
+            if (gate.recordSuccess(gateKey)) RealityRejectionNotice.noteAccepted(gateKey)
+            return connection
+        } catch (e: RealityError.AuthenticationFailed) {
+            if (gate.recordRejection(gateKey)) {
+                logger.warning("[Reality] ${configuration.serverName} via ${gateKey.endpoint} rejected the handshake; backing off")
+            }
+            RealityRejectionNotice.noteRejected(gateKey)
+            throw e
+        }
+    }
+
+    private suspend fun performConnect(host: String, port: Int): TlsRecordConnection {
         // Generate ephemeral X25519 key pair via native bridge (works on all Android versions)
         val keyPair = NativeBridge.nativeX25519GenerateKeyPair()
         ephemeralPrivateKeyBytes = keyPair.copyOfRange(0, 32)
@@ -88,8 +121,7 @@ class RealityClient(
         return receiveServerResponse()
     }
 
-    /** Performs the Reality handshake over an existing transport (for proxy chaining). */
-    suspend fun connect(transport: Transport): TlsRecordConnection {
+    private suspend fun performConnect(transport: Transport): TlsRecordConnection {
         val keyPair = NativeBridge.nativeX25519GenerateKeyPair()
         ephemeralPrivateKeyBytes = keyPair.copyOfRange(0, 32)
         ephemeralPublicKeyBytes = keyPair.copyOfRange(32, 64)

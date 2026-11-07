@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- REALITY-сервер отклонил рукопожатие (см. RealityRejectionGate). -->
+<resources>
+    <string name="latency_rejected">отклонён</string>
+    <string name="reality_rejected_hint">Сервер отклоняет подключение — обновите приложение</string>
+</resources>

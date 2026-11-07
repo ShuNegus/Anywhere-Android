@@ -7,6 +7,8 @@ import com.argsment.anywhere.vpn.util.TransportErrorLogger
 import com.argsment.anywhere.vpn.protocol.ProxyClientFactory
 import com.argsment.anywhere.vpn.protocol.ProxyConnection
 import com.argsment.anywhere.vpn.protocol.direct.DirectTcpRelay
+import com.argsment.anywhere.vpn.protocol.reality.RealityRejectionGate
+import com.argsment.anywhere.vpn.protocol.reality.realityRejectionKeys
 import com.argsment.anywhere.vpn.turn.TurnRouting
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -472,6 +474,19 @@ class LwipTcpConnection(
     private fun connectProxy() {
         if (vlessConnecting || vlessConnection != null || closed) return
         vlessConnecting = true
+
+        // A REALITY server that just rejected us would reject this flow too. Refuse here,
+        // before a TURN stream is taken from the pool or a socket is opened: every app
+        // flow retrying a rejecting server is what piles stuck streams up on a node.
+        val refusal = configuration.realityRejectionKeys.firstNotNullOfOrNull {
+            RealityRejectionGate.shared.refusal(it)
+        }
+        if (refusal != null) {
+            vlessConnecting = false
+            logger.debug("[TCP] Connect refused: $endpointDescription: ${refusal.message}")
+            abort()
+            return
+        }
 
         // Only protocols that embed the first bytes inside their handshake
         // (VLESS + transports) consume `pendingData` here. For everything

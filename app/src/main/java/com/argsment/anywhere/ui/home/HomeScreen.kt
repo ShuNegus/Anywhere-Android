@@ -59,6 +59,10 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import com.argsment.anywhere.vpn.protocol.reality.RealityRejectionNotice
+import com.argsment.anywhere.vpn.protocol.reality.realityRejectionKeys
+import kotlinx.coroutines.delay
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.argsment.anywhere.R
@@ -139,6 +143,22 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
         addSheetPrefill = url
         showingAddSheet = true
         viewModel.consumePendingDeepLink()
+    }
+
+    // The tunnel records REALITY rejections in-process; re-check the selected server
+    // every 2 s while connected (a rejection goes stale after 90 s, a successful
+    // handshake with that server clears it).
+    var selectedServerRejected by remember { mutableStateOf(false) }
+    LaunchedEffect(isConnected) {
+        if (!isConnected) {
+            selectedServerRejected = false
+            return@LaunchedEffect
+        }
+        while (true) {
+            val keys = viewModel.selectedConfiguration?.realityRejectionKeys.orEmpty()
+            selectedServerRejected = keys.isNotEmpty() && RealityRejectionNotice.isRecentlyRejected(keys)
+            delay(REJECTION_POLL_INTERVAL_MS)
+        }
     }
 
     // The stats sheet makes no sense once the tunnel is down.
@@ -230,6 +250,19 @@ fun HomeScreen(viewModel: VpnViewModel, contentPadding: PaddingValues = PaddingV
                                 warning = stage.isDegraded,
                                 onClick = { showingStatsSheet = true },
                             )
+                            if (isConnected && selectedServerRejected) {
+                                // The server spliced us to its donor site: almost always a
+                                // client too old for the server's Xray. A timeout alone would
+                                // send the user hunting network problems.
+                                Text(
+                                    text = stringResource(R.string.reality_rejected_hint),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = BypassWarningTextColor,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.padding(horizontal = 20.dp),
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(10.dp))
@@ -477,6 +510,8 @@ private fun TopBar(onAdd: () -> Unit) {
         }
     }
 }
+
+private const val REJECTION_POLL_INTERVAL_MS = 2_000L
 
 /**
  * Mock-up `.status`: 17 sp semibold white, a regular "›" at 55 % while connected (it opens

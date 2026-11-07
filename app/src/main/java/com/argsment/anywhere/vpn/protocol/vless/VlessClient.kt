@@ -19,6 +19,7 @@ import com.argsment.anywhere.vpn.protocol.grpc.GrpcConfiguration
 import com.argsment.anywhere.vpn.protocol.grpc.GrpcConnection
 import com.argsment.anywhere.vpn.protocol.httpupgrade.HttpUpgradeConnection
 import com.argsment.anywhere.vpn.protocol.reality.RealityClient
+import com.argsment.anywhere.vpn.protocol.reality.isRealityRejection
 import com.argsment.anywhere.vpn.protocol.tls.TlsClient
 import com.argsment.anywhere.vpn.protocol.tls.TlsError
 import com.argsment.anywhere.vpn.protocol.tls.TlsRecordConnection
@@ -794,7 +795,10 @@ class VlessClient(
             }
 
             try {
-                val realityClient = RealityClient(realityConfig)
+                val realityClient = RealityClient(
+                    realityConfig,
+                    endpoint = "${configuration.serverAddress}:${configuration.serverPort}"
+                )
                 val realityConn = if (tunnel != null) {
                     realityClient.connect(requireTunnelTransport())
                 } else {
@@ -823,6 +827,8 @@ class VlessClient(
             } catch (e: Exception) {
                 logger.debug("XHTTP Reality attempt ${attempt + 1}/$MAX_RETRY_ATTEMPTS failed: ${e.message}")
                 if (e is TlsError.CertificateValidationFailed) throw e
+                // Retrying a server that rejected us just repeats the rejection.
+                if (e.isRealityRejection) throw e
                 lastError = e
             }
         }
@@ -917,7 +923,10 @@ class VlessClient(
             }
 
             try {
-                val realityClient = RealityClient(realityConfig)
+                val realityClient = RealityClient(
+                    realityConfig,
+                    endpoint = "${configuration.serverAddress}:${configuration.serverPort}"
+                )
                 val realityConn = if (tunnel != null) {
                     realityClient.connect(requireTunnelTransport())
                 } else {
@@ -934,6 +943,8 @@ class VlessClient(
             } catch (e: Exception) {
                 logger.debug("Reality attempt ${attempt + 1}/$MAX_RETRY_ATTEMPTS failed: ${e.message}")
                 if (e is TlsError.CertificateValidationFailed) throw e
+                // Retrying a server that rejected us just repeats the rejection.
+                if (e.isRealityRejection) throw e
                 lastError = e
             }
         }
@@ -1288,7 +1299,10 @@ class VlessClient(
 
             try {
                 // Reality handles its own ALPN internally.
-                val realityClientLocal = RealityClient(realityConfig)
+                val realityClientLocal = RealityClient(
+                    realityConfig,
+                    endpoint = "${configuration.serverAddress}:${configuration.serverPort}"
+                )
                 val realityConn = if (tunnel != null) {
                     realityClientLocal.connect(requireTunnelTransport())
                 } else {
@@ -1310,6 +1324,8 @@ class VlessClient(
             } catch (e: Exception) {
                 logger.debug("gRPC+Reality attempt ${attempt + 1}/$MAX_RETRY_ATTEMPTS failed: ${e.message}")
                 if (e is TlsError.CertificateValidationFailed) throw e
+                // Retrying a server that rejected us just repeats the rejection.
+                if (e.isRealityRejection) throw e
                 lastError = e
             }
         }

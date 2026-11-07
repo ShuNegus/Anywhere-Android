@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- REALITY server rejected the handshake (see RealityRejectionGate). -->
+<resources>
+    <string name="latency_rejected">rejected</string>
+    <string name="reality_rejected_hint">Server rejects the connection — update the app</string>
+</resources>
